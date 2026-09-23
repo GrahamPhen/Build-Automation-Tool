@@ -2266,22 +2266,26 @@ final class StartBuildSession {
                     if (!solid[i]) {
                         continue;
                     }
-                    // A DOWN or HORIZONTAL solid neighbour is a face Baritone can reliably click against
-                    // (its goal placement uses HORIZONTALS + DOWN, deliberately excluding UP). UP is left
-                    // out here too: a cell whose ONLY neighbour is above it is just as unreachable by the
-                    // goal path as a fully isolated one, so it is pre-placed as well. Measured on
-                    // haunted_80: 55 fully-isolated + 55 only-above = 110 cells, the rest (11990) all have
-                    // a down/horizontal neighbour and are definitely placeable.
+                    BlockState want = LitematicaBridge.schematicBlockAt(loadedSchematic, x, y, z);
+                    if (want == null || want.isAir()) {
+                        continue;
+                    }
+                    // Two classes of cell Baritone can NEVER place, so both are pre-placed with /setblock:
+                    //
+                    // 1. No DOWN/HORIZONTAL solid neighbour - there is no face to click against. (Its goal
+                    //    placement uses HORIZONTALS + DOWN and deliberately excludes UP.)
+                    // 2. A NON-DEFAULT block state. Baritone's approxPlaceable() derives each item's
+                    //    placeable state from a synthetic upward-facing click, which for a pillar always
+                    //    yields axis=y - so an axis=x (or any non-default) cell never matches and never gets
+                    //    a goal. buildIgnoreDirection was tried and does NOT change this (0 of 1081 such
+                    //    cells were ever placed, even with it set).
                     boolean supported = (x > 0 && solid[i - 1])
                             || (x < sx - 1 && solid[i + 1])
                             || (y > 0 && solid[i - sz * sx])
                             || (z > 0 && solid[i - sx])
                             || (z < sz - 1 && solid[i + sx]);
-                    if (supported) {
-                        continue;
-                    }
-                    BlockState want = LitematicaBridge.schematicBlockAt(loadedSchematic, x, y, z);
-                    if (want == null || want.isAir()) {
+                    boolean nonDefault = !want.equals(want.getBlock().defaultBlockState());
+                    if (supported && !nonDefault) {
                         continue;
                     }
                     BlockPos wp = new BlockPos(loadedSchematicOrigin.getX() + x,
@@ -2294,19 +2298,19 @@ final class StartBuildSession {
             }
         }
         if (placed > 0) {
-            StartBuildMod.chat("\u00A7aPre-placed " + placed + " floating block(s) that no builder could click "
-                    + "into place, so nothing will be skipped.");
+            StartBuildMod.chat("\u00A7aPre-placed " + placed + " block(s) that Baritone could never build "
+                    + "(no clickable face, or a non-default block state), so nothing will be skipped.");
         }
     }
 
     /**
      * Verification pass after Baritone reports done: fill anything it still left wrong or empty.
      *
-     * The pre-pass already places the fully-isolated cells, and buildIgnoreDirection makes the axis cells
-     * buildable, so this should normally find zero. It exists as the guarantee - if any cell is still
-     * wrong (wrong orientation, a neighbour Baritone never reached, anything), it is /setblocked to the
-     * exact state so the finished build is complete and correct no matter what Baritone did. Runs before
-     * the recording stops, so the finished take shows a whole build.
+     * The pre-pass already places both the unclickable cells AND the non-default-state cells (axis=x and
+     * the like, which Baritone's up-facing approxPlaceable can never match), so this should normally find
+     * zero. It exists as the guarantee - if any cell is still wrong (a neighbour Baritone never reached,
+     * anything), it is /setblocked to the exact state so the finished build is complete and correct no
+     * matter what Baritone did. Runs before the recording stops, so the finished take shows a whole build.
      */
     private static void completeMissingBlocks() {
         if (loadedSchematic == null || loadedSchematicOrigin == null || loadedSchematicSize == null) {
