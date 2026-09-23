@@ -1,0 +1,26 @@
+# Gradle
+.gradle/
+build/
+
+# IntelliJ / Eclipse
+.idea/
+*.iml
+*.ipr
+*.iws
+.vscode/
+
+# Fabric dev runtime
+run/
+logs/
+
+# OS
+.DS_Store
+Thumbs.db
+
+# Built mod jars and generated outputs (build from source with ./gradlew build)
+*.jar
+!gradle/wrapper/gradle-wrapper.jar
+
+# Generated schematic tool output
+tools/cottage/out/
+examples/*.png

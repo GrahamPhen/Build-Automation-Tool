@@ -1,0 +1,27 @@
+{
+	"schemaVersion": 1,
+	"id": "startbuild",
+	"version": "${version}",
+	"name": "StartBuild",
+	"description": "One command that starts a Baritone build of the loaded Litematica schematic, starts a Flashback recording, and stops and saves the recording a configurable delay after the last block is placed.",
+	"authors": [
+		"Graham"
+	],
+	"license": "MIT",
+	"environment": "client",
+	"entrypoints": {
+		"client": [
+			"com.graham.startbuild.StartBuildMod"
+		]
+	},
+	"depends": {
+		"fabricloader": ">=0.19.0",
+		"minecraft": "~26.2",
+		"fabric-api": "*"
+	},
+	"recommends": {
+		"flashback": "*",
+		"baritone": "*",
+		"litematica": "*"
+	}
+}

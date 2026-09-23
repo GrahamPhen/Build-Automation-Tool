@@ -1,0 +1,47 @@
+plugins {
+	id 'net.fabricmc.fabric-loom' version "${loom_version}"
+}
+
+// StartBuild is client-only and deliberately does NOT compile against Baritone or Flashback.
+// Both are reached through reflection at runtime, so this mod builds with nothing but
+// Fabric API and stays loadable even when Baritone or Flashback are absent.
+repositories {
+}
+
+loom {
+	mods {
+		"startbuild" {
+			sourceSet sourceSets.main
+		}
+	}
+}
+
+dependencies {
+	minecraft "com.mojang:minecraft:${project.minecraft_version}"
+	implementation "net.fabricmc:fabric-loader:${project.loader_version}"
+	implementation "net.fabricmc.fabric-api:fabric-api:${project.fabric_api_version}"
+}
+
+processResources {
+	def version = project.version
+
+	inputs.property "version", version
+
+	filesMatching("fabric.mod.json") {
+		expand "version": version
+	}
+}
+
+tasks.withType(JavaCompile).configureEach {
+	it.options.release = 25
+}
+
+java {
+	sourceCompatibility = JavaVersion.VERSION_25
+	targetCompatibility = JavaVersion.VERSION_25
+}
+
+jar {
+	archiveBaseName.set(project.archives_base_name)
+	archiveVersion.set(project.version.toString())
+}
