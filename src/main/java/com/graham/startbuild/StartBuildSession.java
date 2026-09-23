@@ -1171,7 +1171,10 @@ final class StartBuildSession {
 
     /** Kills every non-player entity near the build. Mobs block placement; item drops do not. */
     private static void clearNearbyMobs() {
-        StartBuildMod.runServerCommand("kill @e[type=!minecraft:player,distance=.." + (int) MOB_CLEAR_RADIUS + "]");
+        // "execute if entity ..." so a no-match kill does not spam "No entity was found" every 20 seconds.
+        StartBuildMod.runServerCommand("execute if entity @e[type=!minecraft:player,distance=.."
+                + (int) MOB_CLEAR_RADIUS + "] run kill @e[type=!minecraft:player,distance=.."
+                + (int) MOB_CLEAR_RADIUS + "]");
     }
 
     /**
@@ -2125,6 +2128,14 @@ final class StartBuildSession {
         // paused, asking for no materials and placing nothing is very often blocked by the player
         // occupying the space a block has to go in - and a restart alone would not fix that.
         movePlayerOutOfBuild();
+
+        // The restart must not walk back into the same wall. Before re-dispatching, fix the actual cause:
+        // setblock every cell that is wrong or missing (an unplaceable axis=x cell the pre-pass missed, a
+        // legacy wall state, anything). Baritone then finds those cells correct and moves on instead of
+        // oscillating on one block for ever - the "player glitches back and forth in the same block" the
+        // user saw is exactly Baritone retrying one unplaceable cell across every restart.
+        completeMissingBlocks();
+
         boolean dispatched;
         if (config.schematicFile.isBlank()) {
             dispatched = BaritoneBridge.requestLitematicaBuild(config.litematicaPlacement);
@@ -2350,9 +2361,8 @@ final class StartBuildSession {
             StartBuildMod.chat("\u00A7aCompleted " + fixed + " block(s) Baritone could not place, so the build "
                     + "is whole.");
         }
-        loadedSchematic = null;
-        loadedSchematicOrigin = null;
-        loadedSchematicSize = null;
+        // NOTE: the schematic reference is deliberately kept (cleared only in reset()) so this pass can
+        // also run mid-build from attemptStallRecovery() to unstick Baritone.
     }
 
     private static void beginCooldown(String reason) {        // Never re-announce: this used to be reachable every other tick, which is what flooded chat.
