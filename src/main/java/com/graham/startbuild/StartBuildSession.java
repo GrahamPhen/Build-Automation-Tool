@@ -1609,12 +1609,18 @@ final class StartBuildSession {
     private static final Pattern MISSING_TYPE = Pattern.compile("[a-z_]+:[a-z_]+");
 
     /**
-     * Gives Baritone exactly the block types it says it is missing, straight from /give.
+     * Stocks Baritone's missing block types by overwriting inventory slots atomically.
      *
-     * Clearing to make room is safe because we can always give a type again later - whereas clearing
-     * a type Baritone is about to need is exactly what wedged the earlier run. Types we have supplied
-     * are remembered so that only our own stock is ever cleared, and a type that never arrives after
-     * three attempts is reported instead of retried for ever.
+     * This was originally a "/clear a slot then /give" dance. That raced the CLIENT's inventory view: both
+     * commands are async server-side, but freeInventorySlots() reads the client copy, which does not update
+     * within the same tick. So the mod "freed" a slot that was still full, every /give landed on a full
+     * inventory, and vanilla /give silently DROPPED the items on the ground - the server logged
+     * "Gave 64 [X]" while the mod saw "0 free inventory slots" and "never arrived" for ever. That is the
+     * whole full-inventory deadlock.
+     *
+     * /item replace has no such race: it overwrites one NAMED slot server-side, regardless of what is
+     * there, so the block is guaranteed to land. Slots 9..35 (the 27 non-hotbar slots) are used, rotating,
+     * leaving Baritone's 9 hotbar slots alone; Baritone's allowInventory logic pulls from there as needed.
      *
      * @return true when something was supplied or found to be unsupplyable, so batch cycling is skipped
      */
@@ -1623,95 +1629,38 @@ final class StartBuildSession {
         if (missing.isEmpty()) {
             return false;
         }
-        Set<String> present = inventoryTypes();
         int given = 0;
         int unsupplyable = 0;
         Set<String> notItems = new HashSet<>();
 
-        // Make room for the whole batch BEFORE giving anything.
-        //
-        // This used to free a single slot, and only when there were none left at all. With several types
-        // to supply, the first /give filled the last free slot and every later one dropped its items on
-        // the ground - which is exactly what the log showed: "Gave the missing block(s) directly: 3
-        // type(s)" immediately followed by "acacia_planks never arrived" and "red_sand never arrived".
-        int planned = 0;
-        for (String type : missing) {
-            if (giveAttempts.getOrDefault(type, 0) < MAX_GIVE_ATTEMPTS) {
-                planned++;
-            }
-        }
-        makeRoomFor(Math.min(planned, MAX_GIVES_PER_CYCLE), missing);
-
         for (String type : missing) {
             if (given >= MAX_GIVES_PER_CYCLE) {
-                break;                                    // the rest wait for the next cycle
+                break;                                      // the rest wait for the next cycle
             }
-            if (present.contains(type)) {
-                // Baritone's missing list is keyed by block STATE and carries a COUNT: "3x
-                // Block{minecraft:deepslate}[axis=x]". The mod only sees the block name, so "deepslate is
-                // already in the inventory" does NOT mean Baritone has enough of it. Refusing to top it up
-                // was a hard deadlock: the two types skipped this way (basalt and deepslate) were precisely
-                // the two present in every repeated request, so Baritone paused, the mod "supplied", and
-                // Baritone paused again for ever. Top it up, bounded by the same attempt cap.
-                int tries = giveAttempts.getOrDefault(type, 0);
-                if (tries >= MAX_GIVE_ATTEMPTS) {
-                    if (reportedPresent.add(type)) {
-                        StartBuildMod.LOGGER.info("[StartBuild] {} is in the inventory but Baritone still "
-                                + "wants more after {} top-ups; leaving it alone", type, tries);
-                    }
-                    unsupplyable++;
-                    continue;
+            if (!isGiveableBlockItem(type)) {
+                if (reportedPresent.add("nonitem:" + type)) {
+                    StartBuildMod.LOGGER.info("[StartBuild] Baritone wants {}, which has no matching item", type);
                 }
-                if (reportedPresent.add(type)) {
-                    StartBuildMod.LOGGER.info("[StartBuild] Baritone reports {} missing though it is in the "
-                            + "inventory - topping it up anyway", type);
-                }
-                // Presence cannot verify a top-up (it was already present), so the attempt is counted here
-                // rather than in verifyPendingGives. Without this the give would repeat for ever.
-                giveAttempts.merge(type, 1, Integer::sum);
-                if (freeInventorySlots() <= 0) {
-                    unsupplyable++;
-                    continue;
-                }
-                if (StartBuildMod.runServerCommand("give @s " + type + " "
-                        + Math.max(1, config.restockGiveCount))) {
-                    suppliedTypes.add(type);
-                    given++;
-                }
-                continue;
-            }
-            if (!isGiveableBlockItem(type) && reportedPresent.add("nonitem:" + type)) {
-                // Note it, but STILL try the give below. Restocking is the one part of this that reliably
-                // works, and the registry check is a guess about the server's item set - so it is used only
-                // to make the message accurate, never to skip a give that might have succeeded. The
-                // behaviour of the give path is therefore unchanged.
-                StartBuildMod.LOGGER.info("[StartBuild] Baritone wants {}, which has no matching item; the "
-                        + "give will probably be rejected", type);
                 notItems.add(type);
-            }
-            if (giveAttempts.getOrDefault(type, 0) >= MAX_GIVE_ATTEMPTS) {
-                unsupplyable++;
                 continue;
             }
-            if (freeInventorySlots() <= 0 && !freeOneSlot(missing)) {
-                unsupplyable++;
-                continue;
-            }
-            if (StartBuildMod.runServerCommand("give @s " + type + " "
-                    + Math.max(1, config.restockGiveCount))) {
+            // Rotate over the 27 non-hotbar slots so no single slot is thrashed every cycle. The slot index
+            // is deliberately independent of the client's (stale) inventory view.
+            int slot = 9 + (given % 27);
+            String command = "item replace entity @s container." + slot + " with " + type + " "
+                    + Math.max(1, config.restockGiveCount);
+            if (StartBuildMod.runServerCommand(command)) {
                 suppliedTypes.add(type);
-                StartBuildMod.LOGGER.info("[StartBuild] gave {} ({} free slot(s) before the give)",
-                        type, freeInventorySlots());
-                // Success is NOT assumed: runServerCommand only proves the command was sent, so the
-                // inventory is checked a moment later and the attempt is only counted against the type
-                // if the block really did not arrive.
-                pendingGives.put(type, BaritoneEventBridge.currentTick());
                 given++;
+                StartBuildMod.LOGGER.info("[StartBuild] replaced container.{} with {} x{}", slot, type,
+                        Math.max(1, config.restockGiveCount));
+            } else {
+                unsupplyable++;
             }
         }
 
         if (given > 0) {
-            StartBuildMod.chat("\u00A7aGave the missing block(s) directly: " + given + " type(s).");
+            StartBuildMod.chat("\u00A7aStocked " + given + " missing block type(s) into the inventory.");
         }
         if (!notItems.isEmpty()) {
             StartBuildMod.chat("\u00A7eBaritone is also waiting on " + notItems.size() + " block state(s) that "
@@ -1720,13 +1669,11 @@ final class StartBuildSession {
                     + "buildIgnoreBlocks.");
         }
         if (unsupplyable > 0) {
-            StartBuildMod.chat("\u00A7e" + unsupplyable + " block(s) were given " + MAX_GIVE_ATTEMPTS
-                    + " times but never appeared in the inventory - giving them is not working. Check the "
-                    + "server log for a rejected /give.");
+            StartBuildMod.chat("\u00A7e" + unsupplyable + " /item replace command(s) could not be sent - check "
+                    + "the log.");
         }
-        // Anything parsed counts as handled. Falling through to batch feeding here would CLEAR the
-        // whole inventory and destroy types Baritone can still use - the exact trap this method exists
-        // to avoid - so batch cycling stays only as the fallback for when nothing could be parsed.
+        // Anything parsed counts as handled, so batch cycling (which would CLEAR the whole inventory and
+        // destroy types Baritone still holds) stays only as the fallback for when nothing could be parsed.
         return true;
     }
 

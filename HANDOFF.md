@@ -269,6 +269,8 @@ Each is a class of failure, with the tell-tale log line and the fix.
 | 6 | Missing list captured as ONE type | Baritone logs one message per missing type | accumulator in `observe()` |
 | 7 | `pack.mcmeta` "newer than 81 … missing min_format/max_format" every launch | `supported_formats.max_inclusive: 9999` claims a future version | removed the range; `pack_format: 107` is exact |
 | 8 | Build placed at y=-60, seemingly "buried" | **Not a bug.** The world is superflat (ground y=-61). The burial guard compares against the real surface, so it correctly does NOT fire. |
+| 9 |   free inventory slots + Gave 64 [X] + 
+ever arrived while Baritone re-pauses | clear+give raced the CLIENT's inventory view (both async, same tick), so every give landed on a full inventory and dropped | /item replace entity @s container.N with ... (atomic, server-side, no free-slot logic) |
 
 **The recurring meta-lesson:** every wrong diagnosis came from trusting Baritone's or the mod's own
 self-reporting. The world files and the server-side log are the only two signals that have never lied.
