@@ -261,7 +261,7 @@ Each is a class of failure, with the tell-tale log line and the fix.
 
 | # | Symptom (log/world) | Root cause | Fix |
 |---|---|---|---|
-| 1 | "Starting layer 0/1" then forever; **0 of 1081 `axis=x` cells ever placed; "Starting layer 2" never appears** | Baritone files `axis=x` as missing material; layer 1 can never close | `buildIgnoreDirection=true` |
+| 1 | "Starting layer 0/1" then forever; **0 of 1081 `axis=x` cells ever placed; "Starting layer 2" never appears** | Baritone files `axis=x` as missing material; layer 1 can never close | pre-pass /setblocks every non-default state (uildIgnoreDirection=true does NOT fix it - see #11) |
 | 2 | Build stops mid-layer; ~55 cells missing at the end | Cells with no solid neighbour are unclickable | `prePlaceUnbuildableBlocks` (/setblock) |
 | 3 | `only-above` cells also missing | goal placement excludes UP | widened pre-pass criterion to "no down/horizontal neighbour" |
 | 4 | "active but placed nothing for 60s" → cancel → restart, on a build that was working | progress clock on `BlockChangeEvent` (123 events vs 3424 blocks) | world sampling + layer counter |
