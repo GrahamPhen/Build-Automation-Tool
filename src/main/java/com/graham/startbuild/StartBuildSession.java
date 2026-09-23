@@ -1164,7 +1164,14 @@ final class StartBuildSession {
         // BaritoneEventBridge.setBuildRegion - scoping it to 8 blocks is what made every large build
         // look stalled and get cancelled after 180 seconds.
         publishBuildRegion();
+        // No mobs in the build volume: a creature standing on the next block stalls placement for ever.
+        clearNearbyMobs();
         StartBuildMod.chat("Build requested; watching for the last block.");
+    }
+
+    /** Kills every non-player entity near the build. Mobs block placement; item drops do not. */
+    private static void clearNearbyMobs() {
+        StartBuildMod.runServerCommand("kill @e[type=!minecraft:player,distance=.." + (int) MOB_CLEAR_RADIUS + "]");
     }
 
     /**
@@ -1229,6 +1236,11 @@ final class StartBuildSession {
         // The world sample is taken first and unconditionally: it is the only progress signal that does not
         // depend on Baritone telling us the truth about its own work. See sampleWorldProgress().
         sampleWorldProgress();
+        // Mobs spawn during a long run; clear them on a cadence so one cannot sit on a block and stall it.
+        if (--mobClearCountdown <= 0) {
+            mobClearCountdown = MOB_CLEAR_INTERVAL_TICKS;
+            clearNearbyMobs();
+        }
         if ((config.warnIfNoPlacementSeconds > 0 || config.stallRecoverSeconds > 0) && buildStartTick > 0) {
             long now = BaritoneEventBridge.currentTick();
             // Two clocks, because they answer different questions.
@@ -1762,6 +1774,16 @@ final class StartBuildSession {
     private static int progressSampleCountdown;
     /** Highest layer counter seen this run - Baritone advances it only when a layer closes. */
     private static int lastSeenLayer = -1;
+
+    /**
+     * Mobs stand in the build and block placement - a single creature sitting on the next block stalls the
+     * whole run until someone removes it. A build-recording world wants no mobs at all, so they are killed
+     * once at the start and then every 20 seconds, within a radius big enough to cover the whole build
+     * wherever the player happens to be.
+     */
+    private static int mobClearCountdown;
+    private static final int MOB_CLEAR_INTERVAL_TICKS = 400;    // 20 seconds
+    private static final double MOB_CLEAR_RADIUS = 160.0;       // covers an 80x80x64 build from any corner
 
     /**
      * Every Nth block on each axis. 2 keeps an 80x80x80 region to ~64k reads (~tens of ms every 5 s) and,
