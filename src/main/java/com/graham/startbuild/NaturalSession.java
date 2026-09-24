@@ -49,6 +49,22 @@ final class NaturalSession {
     private static int idleTicks;
     private static int rechecks;
 
+    /** What the character is doing: terraforming (clear, then fill), then the build itself. */
+    private enum Stage {
+        CLEAR("terraforming: clearing"), FILL("terraforming: filling"), BUILD("building");
+
+        final String label;
+
+        Stage(String label) {
+            this.label = label;
+        }
+    }
+
+    private static Stage stage = Stage.BUILD;
+    private static Terraformer.Plan terraform;
+    private static long terrainBroken;
+    private static long terrainPlaced;
+
     private NaturalSession() {
     }
 
@@ -146,6 +162,10 @@ final class NaturalSession {
         builder = null;
         rechecks = 0;
         waitTicks = 0;
+        terraform = null;
+        stage = Stage.BUILD;
+        terrainBroken = 0;
+        terrainPlaced = 0;
         state = State.PREPARING;
         StartBuildMod.LOGGER.info("[StartBuild] natural build of {} ({}x{}x{}, {} blocks) requested",
                 name, model.sizeX, model.sizeY, model.sizeZ, model.solidCount);
@@ -167,6 +187,8 @@ final class NaturalSession {
         }
         StartBuildMod.runServerCommand("gamerule fire_spread_radius_around_player 0");
         StartBuildMod.runServerCommand("gamerule random_tick_speed 0");
+        // Terraforming breaks blocks on camera: plants knocked off their ground must not litter items.
+        StartBuildMod.runServerCommand("gamerule block_drops false");
         StartBuildMod.runServerCommand("difficulty peaceful");
         if (config.videoDaylight) {
             StartBuildMod.runServerCommand("time set noon");
@@ -494,23 +516,6 @@ final class NaturalSession {
         return start(name, at, false);     // start() clears the ghost so it never appears on camera
     }
 
-    /** /fill in horizontal slabs that each stay under vanilla's 32,768-block limit. @return commands sent. */
-    private static long fillSliced(int x1, int y1, int z1, int x2, int y2, int z2, String what) {
-        int layer = (x2 - x1 + 1) * (z2 - z1 + 1);
-        int per = Math.max(1, 32768 / Math.max(1, layer));
-        long cmds = 0;
-        if (per >= 1 && layer <= 32768) {
-            for (int y = y1; y <= y2; y += per) {
-                StartBuildMod.runServerCommand("fill " + x1 + " " + y + " " + z1 + " " + x2 + " "
-                        + Math.min(y2, y + per - 1) + " " + z2 + " " + what);
-                cmds++;
-            }
-            return cmds;
-        }
-        int mid = (x1 + x2) / 2;          // footprint wider than one layer allows: split it
-        return fillSliced(x1, y1, z1, mid, y2, z2, what) + fillSliced(mid + 1, y1, z1, x2, y2, z2, what);
-    }
-
     // ================================================================== ticking
 
     static void tick() {
@@ -532,12 +537,21 @@ final class NaturalSession {
             case PREPARING -> tickPreparing(mc);
             case PRE_ROLL -> {
                 if (--waitTicks <= 0) {
-                    builder = new NaturalBuilder(model, origin, config.ticksPerBlock);
                     buildStartMillis = System.currentTimeMillis();
                     lastPlaced = 0;
                     idleTicks = 0;
                     state = State.BUILDING;
-                    StartBuildMod.LOGGER.info("[StartBuild] building {} at {}", schematicName, origin);
+                    if (terraform != null && terraform.clear() != null) {
+                        stage = Stage.CLEAR;
+                        builder = new NaturalBuilder(terraform.clear(), terraform.clearOrigin(), config.ticksPerBlock, true);
+                    } else if (terraform != null && terraform.fill() != null) {
+                        stage = Stage.FILL;
+                        builder = new NaturalBuilder(terraform.fill(), terraform.fillOrigin(), config.ticksPerBlock);
+                    } else {
+                        stage = Stage.BUILD;
+                        builder = new NaturalBuilder(model, origin, config.ticksPerBlock);
+                    }
+                    StartBuildMod.LOGGER.info("[StartBuild] {} {} at {}", stage.label, schematicName, origin);
                 }
             }
             case BUILDING -> tickBuilding(mc);
@@ -583,23 +597,14 @@ final class NaturalSession {
         if (waitTicks < 40) {
             return;
         }
-        // Site prep BEFORE the camera rolls: cut away terrain inside the build's volume (a hillside, trees)
-        // and fill dips just around it, so the character only ever builds - never digs - on camera.
+        // Plan the terraforming now (read-only). The character does all of it by hand ON CAMERA once the
+        // recording runs: fell trees and dig the hillside down, build up dips, re-grass the banks, then build.
+        terraform = null;
         if (config.prepTerrain) {
-            TerrainPrep.Result prep = TerrainPrep.level(level, origin, model.sizeX, model.sizeZ, origin.getY(),
-                    "minecraft:grass_block", "minecraft:dirt", 2);
-            StartBuildMod.LOGGER.info("[StartBuild] site prep: {}", prep.describe());
-            // Whole trees near the build go (not just the leaves inside it), then the build volume is emptied.
-            int m = 6, top = origin.getY() + model.sizeY + 12;
-            int bx1 = origin.getX(), bz1 = origin.getZ(), bx2 = bx1 + model.sizeX - 1, bz2 = bz1 + model.sizeZ - 1;
-            long n = 0;
-            n += fillSliced(bx1 - m, origin.getY(), bz1 - m, bx2 + m, top, bz2 + m, "air replace #minecraft:leaves");
-            n += fillSliced(bx1 - m, origin.getY(), bz1 - m, bx2 + m, top, bz2 + m, "air replace #minecraft:logs");
-            n += fillSliced(bx1, origin.getY(), bz1, bx2, origin.getY() + model.sizeY, bz2, "air");
-            StartBuildMod.LOGGER.info("[StartBuild] site cleared: {} fill command(s)", n);
-            waitTicks = 0;
-            config.prepTerrain = false;          // once per run (config is reloaded at the next start)
-            return;                              // let the world settle a moment before recording
+            long t0 = System.currentTimeMillis();
+            terraform = Terraformer.plan(level, origin, model, config.terraformRadius);
+            StartBuildMod.LOGGER.info("[StartBuild] terraform plan: {} ({} ms)", terraform.describe(),
+                    System.currentTimeMillis() - t0);
         }
         recordingByUs = false;
         if (config.startRecording && FlashbackBridge.available()) {
@@ -632,10 +637,28 @@ final class NaturalSession {
 
         // Progress report to the log once a minute (never to chat - it would be on camera).
         if (builder.ticks % 1200 == 0) {
-            StartBuildMod.LOGGER.info("[StartBuild] progress: {} placed, {} left, layer {}, {} min{}",
-                    builder.placed, builder.remaining(), builder.layer(),
+            StartBuildMod.LOGGER.info("[StartBuild] progress: {} {} placed, {} broken, {} left, layer {}, {} min{}",
+                    stage.label, builder.placed, builder.broken, builder.remaining(), builder.layer(),
                     (System.currentTimeMillis() - buildStartMillis) / 60000,
                     builder.lastProblem().isEmpty() ? "" : ", last problem: " + builder.lastProblem());
+        }
+
+        // Terraforming stages hand over to the next one when done: clear -> fill -> build.
+        if (stage != Stage.BUILD && builder.isFinished()) {
+            StartBuildMod.LOGGER.info("[StartBuild] {} done: {} broken, {} placed, {} left over, {} min",
+                    stage.label, builder.broken, builder.placed, builder.remaining(),
+                    (System.currentTimeMillis() - buildStartMillis) / 60000);
+            terrainBroken += builder.broken;
+            terrainPlaced += builder.placed;
+            if (stage == Stage.CLEAR && terraform.fill() != null) {
+                stage = Stage.FILL;
+                builder = new NaturalBuilder(terraform.fill(), terraform.fillOrigin(), config.ticksPerBlock);
+            } else {
+                stage = Stage.BUILD;
+                builder = new NaturalBuilder(model, origin, config.ticksPerBlock);
+            }
+            StartBuildMod.LOGGER.info("[StartBuild] {} {}", stage.label, schematicName);
+            return;
         }
 
         // Stop safely if the recording was ended behind our back.
@@ -678,8 +701,12 @@ final class NaturalSession {
             }
         }
         state = State.IDLE;
-        String summary = String.format("Done: %s - %d placed by the character, %d not matching, %d min.",
-                schematicName, builder == null ? 0 : builder.placed, wrong, minutes);
+        boolean built = stage == Stage.BUILD;
+        String summary = String.format("Done: %s - %d placed by the character, %d not matching, %d min"
+                        + " (terraforming: %d broken, %d placed).",
+                schematicName, builder == null || !built ? 0 : builder.placed, built ? wrong : -1, minutes,
+                terrainBroken, terrainPlaced);
+        StartBuildMod.LOGGER.info("[StartBuild] {}", summary);
         StartBuildMod.chat((wrong == 0 ? "§a" : "§e") + summary
                 + (recordingByUs ? " Recording saved." : ""));
         if (config.desktopNotification) {
@@ -716,8 +743,8 @@ final class NaturalSession {
             StartBuildMod.chat("natural builder: " + state + " (" + schematicName + ")");
             return;
         }
-        StartBuildMod.chat(String.format("natural builder: %s %s - %d placed, %d left, layer %d/%d%s",
-                state, schematicName, builder.placed, builder.remaining(), builder.layer(), model.sizeY,
+        StartBuildMod.chat(String.format("natural builder: %s (%s) %s - %d placed, %d broken, %d left, layer %d%s",
+                state, stage.label, schematicName, builder.placed, builder.broken, builder.remaining(), builder.layer(),
                 builder.lastProblem().isEmpty() ? "" : " | last problem: " + builder.lastProblem()));
     }
 

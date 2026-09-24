@@ -235,8 +235,15 @@ final class StartBuildConfig {
     public Integer lastAutoOriginX = null;
     public Integer lastAutoOriginZ = null;
 
-    /** Before recording: level the site (cut hills/trees inside the footprint, fill dips at its edge). */
+    /**
+     * Terraform the site ON CAMERA, by hand, before building: the character fells trees in the way, digs
+     * the hillside down and builds up dips with real clicks, blending the pad into the land around it
+     * (see Terraformer). Nothing is /fill'd.
+     */
     public boolean prepTerrain = true;
+
+    /** How far (blocks) around the footprint the ground is reshaped to blend the pad into the landscape. */
+    public int terraformRadius = 12;
 
     /** Before recording: daylight and clear weather, so the replay is watchable. */
     public boolean videoDaylight = true;

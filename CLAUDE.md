@@ -6,8 +6,10 @@ and what is/isn't verified. `docs/` holds the obsolete Baritone-era notes; don't
 
 ## Owner's non-negotiables
 - The recording must look like a real player building: every build block placed by the character with a
-  real click. No printer, no `/setblock`/`/fill` of build blocks, no Litematica ghost, chat text or
-  digging on camera. Site prep (`/fill` clearing/levelling) is fine but ONLY before recording starts.
+  real click. No printer, no `/setblock`/`/fill` of build blocks, no Litematica ghost or chat text on camera.
+- Site prep is done BY THE CHARACTER, ON CAMERA (owner's call, 2026-09-24): it fells trees, digs the
+  hillside down and builds up dips with real clicks, and the ground is terraformed so the pad blends into
+  the land (no floating pad, no box cut into a mountain). Never `/fill` terrain.
 - Runs unattended to completion; never saves an empty or stalled take.
 - Keep token use low: no screenshots/desktop clicking when a file or log answers the question.
 

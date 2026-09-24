@@ -31,6 +31,11 @@ final class SchematicModel {
         this.states = new BlockState[sx * sy * sz];
     }
 
+    /** An empty model to fill in by hand (terraforming targets); null cells mean "leave as it is". */
+    static SchematicModel blank(int sx, int sy, int sz) {
+        return new SchematicModel(sx, sy, sz);
+    }
+
     int index(int x, int y, int z) {
         return (y * sizeZ + z) * sizeX + x;
     }

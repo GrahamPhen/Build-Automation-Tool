@@ -5,6 +5,7 @@ import net.minecraft.client.multiplayer.ClientLevel;
 import net.minecraft.client.player.LocalPlayer;
 import net.minecraft.core.BlockPos;
 import net.minecraft.core.Direction;
+import net.minecraft.tags.BlockTags;
 import net.minecraft.util.Mth;
 import net.minecraft.world.InteractionHand;
 import net.minecraft.world.InteractionResult;
@@ -130,19 +131,36 @@ final class NaturalBuilder {
         }
     }
 
+    /**
+     * Clearing mode (terraforming): the model's AIR cells are the work - each is broken by hand - and the
+     * layers are worked TOP-DOWN, the way a player digs into a hill or fells a tree.
+     */
+    private final boolean clearing;
+
     NaturalBuilder(SchematicModel model, BlockPos origin, int ticksPerBlock) {
+        this(model, origin, ticksPerBlock, false);
+    }
+
+    NaturalBuilder(SchematicModel model, BlockPos origin, int ticksPerBlock, boolean clearing) {
         this.model = model;
         this.origin = origin;
+        this.clearing = clearing;
         this.ticksPerBlock = Math.max(1, ticksPerBlock);
         this.status = new byte[model.states.length];
         for (int i = 0; i < status.length; i++) {
             BlockState s = model.states[i];
-            if (s != null && !s.isAir() && !isSecondaryPart(s)) {
+            if (s != null && (clearing ? s.isAir() : !s.isAir() && !isSecondaryPart(s))) {
                 status[i] = 1;
                 remaining++;
             }
         }
-        this.highestBuiltY = origin.getY();
+        // Clearing starts at the top of the work, so routes cruise above it.
+        this.highestBuiltY = clearing ? origin.getY() + model.sizeY : origin.getY();
+    }
+
+    /** Model y of work layer `n`: bottom-up when building, top-down when clearing. */
+    private int ly(int n) {
+        return clearing ? model.sizeY - 1 - n : n;
     }
 
     boolean isFinished() {
@@ -275,31 +293,34 @@ final class NaturalBuilder {
 
         // 3. The normal case: the nearest cell that can be clicked into place right now, working upwards.
         while (layer < model.sizeY) {
-            Action a = bestInLayers(mc, player, level, layer, layer);
+            int y = ly(layer);
+            Action a = bestInLayers(mc, player, level, y, y);
             if (a != null) {
                 return a;
             }
-            if (!hasOpen(layer)) {
+            if (!hasOpen(y)) {
                 layer++;
-                highestBuiltY = Math.max(highestBuiltY, origin.getY() + layer);
+                if (!clearing) highestBuiltY = Math.max(highestBuiltY, origin.getY() + layer);
                 continue;
             }
-            // Everything left in this layer is stuck for now. A cell under an overhang can be clicked
-            // from below once the block above it exists, so let the next layer help before resorting
-            // to temporary blocks.
-            if (layer + 1 < model.sizeY) {
-                Action up = bestInLayers(mc, player, level, layer + 1, layer + 1);
-                if (up != null) {
-                    return up;
+            if (!clearing) {
+                // Everything left in this layer is stuck for now. A cell under an overhang can be clicked
+                // from below once the block above it exists, so let the next layer help before resorting
+                // to temporary blocks.
+                if (layer + 1 < model.sizeY) {
+                    Action up = bestInLayers(mc, player, level, ly(layer + 1), ly(layer + 1));
+                    if (up != null) {
+                        return up;
+                    }
                 }
-            }
-            Action sc = scaffoldFor(mc, player, level, layer);
-            if (sc != null) {
-                return sc;
+                Action sc = scaffoldFor(mc, player, level, y);
+                if (sc != null) {
+                    return sc;
+                }
             }
             // Nothing works in this layer at the moment: park what is left and move on. Parked cells are
             // retried once the layers above exist (and again at the end).
-            parkLayer(layer);
+            parkLayer(y);
             layer++;
         }
 
@@ -355,6 +376,15 @@ final class NaturalBuilder {
                     BlockPos p = world(x, y, z);
                     BlockState have = level.getBlockState(p);
                     BlockState want = model.states[i];
+                    if (want.isAir()) {
+                        // Clearing: done once it is gone; water/lava cannot be broken, so it is left.
+                        if (have.isAir() || !have.getFluidState().isEmpty()) {
+                            markDone(i);
+                            continue;
+                        }
+                        cands.add(new long[]{(long) (eye.distanceTo(Vec3.atCenterOf(p)) * 1000), i});
+                        continue;
+                    }
                     if (matches(have, want)) {
                         markDone(i);
                         continue;
@@ -380,7 +410,9 @@ final class NaturalBuilder {
             BlockState have = level.getBlockState(p);
             Action a;
             Item use = specialUse(have, model.states[i]);
-            if (use != null) {
+            if (model.states[i].isAir()) {
+                a = new Action(Kind.BREAK, p, model.states[i], false);
+            } else if (use != null) {
                 a = new Action(isWater(model.states[i]) ? Kind.USE_AIR : Kind.USE, p, model.states[i], false);
                 a.item = use;
             } else if (!have.isAir() && !have.canBeReplaced()) {
@@ -514,7 +546,7 @@ final class NaturalBuilder {
                 if (a.scaffold) scaffolds.remove(a.target);
                 return false;
             }
-            Direction face = bestVisibleFace(player, a.target);
+            Direction face = bestVisibleFace(level, player, a.target);
             a.against = a.target;
             a.face = face;
             a.hit = Vec3.atCenterOf(a.target).add(face.getStepX() * 0.5, face.getStepY() * 0.5, face.getStepZ() * 0.5);
@@ -675,6 +707,8 @@ final class NaturalBuilder {
 
     private void act(Minecraft mc, LocalPlayer player, ClientLevel level, Action a) {
         if (a.kind == Kind.BREAK) {
+            Item tool = toolFor(level.getBlockState(a.target));
+            if (tool != null) holdItem(mc, player, tool);
             mc.gameMode.startDestroyBlock(a.target, a.face);
             player.swing(InteractionHand.MAIN_HAND);
             broken++;
@@ -704,9 +738,17 @@ final class NaturalBuilder {
         if (a.kind == Kind.BREAK) {
             if (have.isAir()) {
                 if (a.scaffold) scaffolds.remove(a.target);
+                if (a.want != null && a.want.isAir()) markDone(indexOf(a.target));   // clearing: that cell is done
                 progress();
+                return;
             }
-            return;         // not gone yet: it is simply picked again
+            // Not gone yet: it is simply picked again - but something that never breaks is parked.
+            int bi = indexOf(a.target);
+            if (!a.scaffold && bi >= 0 && attempts.merge(bi, 1, Integer::sum) >= 12) {
+                status[bi] = 3;
+                lastProblem = "could not break " + name(have) + " at " + a.target;
+            }
+            return;
         }
         if (a.scaffold) {
             if (!have.isAir()) progress();
@@ -741,6 +783,15 @@ final class NaturalBuilder {
     }
 
     // ================================================================== creative inventory
+
+    /** The tool a player would dig this with (creative breaks instantly anyway; this is for the look). */
+    private static Item toolFor(BlockState s) {
+        if (s.is(BlockTags.MINEABLE_WITH_AXE)) return Items.DIAMOND_AXE;
+        if (s.is(BlockTags.MINEABLE_WITH_SHOVEL)) return Items.DIAMOND_SHOVEL;
+        if (s.is(BlockTags.MINEABLE_WITH_PICKAXE)) return Items.DIAMOND_PICKAXE;
+        if (s.is(BlockTags.LEAVES)) return Items.SHEARS;
+        return null;
+    }
 
     private int findHotbar(Inventory inv, Item item) {
         for (int s = 0; s < 9; s++) {
@@ -883,14 +934,16 @@ final class NaturalBuilder {
         return new float[]{Mth.wrapDegrees(yaw), pitch};
     }
 
-    private Direction bestVisibleFace(LocalPlayer player, BlockPos p) {
+    /** The face turned most towards the player, preferring faces that are open to the air (what you can see). */
+    private Direction bestVisibleFace(ClientLevel level, LocalPlayer player, BlockPos p) {
         Vec3 eye = player.getEyePosition();
         Vec3 c = Vec3.atCenterOf(p);
         Direction best = Direction.UP;
-        double bestDot = -2;
+        double bestDot = -99;
         Vec3 to = eye.subtract(c).normalize();
         for (Direction d : Direction.values()) {
             double dot = d.getStepX() * to.x + d.getStepY() * to.y + d.getStepZ() * to.z;
+            if (!level.getBlockState(p.relative(d)).canBeReplaced()) dot -= 3;   // covered face
             if (dot > bestDot) {
                 bestDot = dot;
                 best = d;
