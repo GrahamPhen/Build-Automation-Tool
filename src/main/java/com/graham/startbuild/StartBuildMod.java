@@ -86,6 +86,11 @@ public class StartBuildMod implements ClientModInitializer {
                                         lastCommandSource = context.getSource();
                                         return NaturalSession.startHere(StringArgumentType.getString(context, "name"));
                                     })))
+                    .then(ClientCommands.literal("confirm")
+                            .executes(context -> {
+                                lastCommandSource = context.getSource();
+                                return NaturalSession.confirmPreview();
+                            }))
                     // Hands-free: build on a fresh patch of ground next to the last automatic build.
                     .then(ClientCommands.literal("auto")
                             .executes(context -> {
@@ -123,6 +128,15 @@ public class StartBuildMod implements ClientModInitializer {
                                                         StringArgumentType.getString(context, "name"),
                                                         IntegerArgumentType.getInteger(context, "radius"));
                                             })))));
+
+            dispatcher.register(ClientCommands.literal("previewbuild")
+                    .then(ClientCommands.literal("off")
+                            .executes(context -> NaturalSession.clearPreview()))
+                    .then(ClientCommands.argument("name", StringArgumentType.greedyString())
+                            .executes(context -> {
+                                lastCommandSource = context.getSource();
+                                return NaturalSession.preview(StringArgumentType.getString(context, "name"));
+                            })));
 
             dispatcher.register(ClientCommands.literal("stopbuild")
                     .executes(context -> {

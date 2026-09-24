@@ -188,6 +188,29 @@ final class LitematicaBridge {
         }
     }
 
+    /**
+     * The currently selected placement's origin, rotation and mirror, as the player has moved it with
+     * Litematica's own tools. @return {BlockPos origin, String rotation, String mirror} or null.
+     */
+    static Object[] selectedPlacement() {
+        try {
+            Class<?> dataManager = Reflect.find(DATA_MANAGER);
+            Object manager = Reflect.method(dataManager, "getSchematicPlacementManager").invoke(null);
+            Object placement = Reflect.method(manager.getClass(), "getSelectedSchematicPlacement").invoke(manager);
+            if (placement == null) {
+                return null;
+            }
+            Class<?> pc = placement.getClass();
+            Object origin = Reflect.method(pc, "getOrigin").invoke(placement);
+            Object rotation = Reflect.method(pc, "getRotation").invoke(placement);
+            Object mirror = Reflect.method(pc, "getMirror").invoke(placement);
+            return new Object[]{origin, String.valueOf(rotation), String.valueOf(mirror)};
+        } catch (Throwable t) {
+            StartBuildMod.LOGGER.warn("[StartBuild] could not read the selected placement: {}", Reflect.describe(t));
+            return null;
+        }
+    }
+
     private static List<?> placements(Object manager, Class<?> managerClass) {
         try {
             Method all = Reflect.method(managerClass, "getAllSchematicsPlacements");

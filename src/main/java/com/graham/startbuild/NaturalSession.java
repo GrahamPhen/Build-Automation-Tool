@@ -166,6 +166,109 @@ final class NaturalSession {
         }
     }
 
+    // ================================================================== preview
+
+    private static String previewName;
+    private static BlockPos previewOrigin;
+
+    /**
+     * Shows the schematic as Litematica's see-through ghost exactly where /startbuild place would build it
+     * (corner at your feet, extending east and south), and reports what is in the way. Nothing is placed.
+     */
+    static int preview(String rawName) {
+        Minecraft mc = Minecraft.getInstance();
+        if (mc.player == null || mc.level == null) {
+            StartBuildMod.chat("\u00A7cJoin a world first.");
+            return 0;
+        }
+        if (state != State.IDLE) {
+            StartBuildMod.chat("\u00A7eA build is running - the preview would show on camera. /stopbuild first.");
+            return 0;
+        }
+        String name = rawName.trim();
+        if (!name.toLowerCase().matches(".*\\.(litematic|schem|schematic)$")) {
+            name = name + ".litematic";
+        }
+        File file = new File(new File(mc.gameDirectory, "schematics"), name);
+        if (!file.isFile()) {
+            StartBuildMod.chat("\u00A7cNo such schematic: " + name);
+            return 0;
+        }
+        Object schematic = LitematicaBridge.loadSchematic(file.toPath().getParent(), name);
+        SchematicModel m = SchematicModel.read(schematic);
+        if (m == null) {
+            StartBuildMod.chat("\u00A7cCould not read " + name + ".");
+            return 0;
+        }
+        BlockPos corner = mc.player.blockPosition();
+        int[] placed = LitematicaBridge.place(schematic, corner, "preview " + name, true);
+        if (placed[0] <= 0) {
+            StartBuildMod.chat("\u00A7cLitematica could not show the preview.");
+            return 0;
+        }
+        previewName = name;
+        previewOrigin = corner;
+
+        // What is in the way: existing blocks inside the footprint that are not what the build wants there
+        // (trees, hills). The builder does not clear them, so they would end up in the video.
+        int inTheWay = 0, below = 0;
+        for (int y = 0; y < m.sizeY; y++) {
+            for (int z = 0; z < m.sizeZ; z++) {
+                for (int x = 0; x < m.sizeX; x++) {
+                    BlockPos p = corner.offset(x, y, z);
+                    net.minecraft.world.level.block.state.BlockState have = mc.level.getBlockState(p);
+                    if (have.isAir() || have.canBeReplaced()) continue;
+                    net.minecraft.world.level.block.state.BlockState want = m.at(x, y, z);
+                    if (!NaturalBuilder.matches(have, want)) inTheWay++;
+                }
+            }
+        }
+        for (int z = 0; z < m.sizeZ; z++) {
+            for (int x = 0; x < m.sizeX; x++) {
+                if (mc.level.getBlockState(corner.offset(x, -1, z)).isAir()) below++;
+            }
+        }
+        StartBuildMod.chat("Preview: " + name + " " + m.sizeX + "x" + m.sizeY + "x" + m.sizeZ + " at "
+                + corner.toShortString() + " (east/south of you).");
+        StartBuildMod.chat((inTheWay == 0 ? "\u00A7aNothing in the way." : "\u00A7e" + inTheWay
+                + " existing block(s) inside the footprint would stay in the shot (trees/terrain).")
+                + (below > 0 ? " \u00A7e" + below + " cell(s) of the base hang over air." : ""));
+        StartBuildMod.chat("Move it: Litematica's nudge (hold the stick, Alt + scroll) or M > Placements > Configure. "
+                + "Then /startbuild confirm to build it where the ghost is, or /previewbuild off.");
+        return 1;
+    }
+
+    static int clearPreview() {
+        int n = LitematicaBridge.clearPlacements();
+        previewName = null;
+        previewOrigin = null;
+        StartBuildMod.chat(n > 0 ? "Preview hidden." : "No preview to hide.");
+        return 1;
+    }
+
+    /** Builds the last preview exactly where it was shown, wherever the player is now. */
+    static int confirmPreview() {
+        if (previewName == null || previewOrigin == null) {
+            StartBuildMod.chat("\u00A7eNo preview yet. /previewbuild <name> first.");
+            return 0;
+        }
+        String name = previewName;
+        BlockPos at = previewOrigin;
+        // Build wherever the ghost is NOW - it may have been moved with Litematica's own controls.
+        Object[] sel = LitematicaBridge.selectedPlacement();
+        if (sel != null && sel[0] instanceof BlockPos moved) {
+            if (!"NONE".equals(sel[1]) || !"NONE".equals(sel[2])) {
+                StartBuildMod.chat("\u00A7eThe preview is rotated or mirrored - that is not supported yet. "
+                        + "Reset rotation/mirror in Litematica (M > Placements > Configure) and confirm again.");
+                return 0;
+            }
+            at = moved;
+        }
+        previewName = null;
+        previewOrigin = null;
+        return start(name, at, false);     // start() clears the ghost so it never appears on camera
+    }
+
     // ================================================================== ticking
 
     static void tick() {
