@@ -11,6 +11,7 @@ import net.minecraft.world.level.levelgen.Heightmap;
 import java.io.File;
 import java.nio.file.Files;
 import java.nio.file.Path;
+import java.util.List;
 
 /**
  * One unattended take: pick/prepare the site, start Flashback, let {@link NaturalBuilder} build the whole
@@ -235,6 +236,86 @@ final class NaturalSession {
                 + (below > 0 ? " \u00A7e" + below + " cell(s) of the base hang over air." : ""));
         StartBuildMod.chat("Move it: Litematica's nudge (hold the stick, Alt + scroll) or M > Placements > Configure. "
                 + "Then /startbuild confirm to build it where the ghost is, or /previewbuild off.");
+        return 1;
+    }
+
+    private static List<PlacementFinder.Result> siteChoices = List.of();
+    private static int siteIndex;
+    private static String siteName;
+
+    /**
+     * "/findsite <name> near a river" - searches the loaded world around the player for the most natural
+     * spot, shows the build there as a ghost, and flies the player to a viewpoint. /findsite next shows
+     * the runner-up; /startbuild confirm builds it.
+     */
+    static int findSite(String rawName, String wishText) {
+        Minecraft mc = Minecraft.getInstance();
+        if (mc.player == null || mc.level == null) {
+            StartBuildMod.chat("\u00A7cJoin a world first.");
+            return 0;
+        }
+        if (state != State.IDLE) {
+            StartBuildMod.chat("\u00A7eA build is running. /stopbuild first.");
+            return 0;
+        }
+        String name = rawName.trim();
+        if (!name.toLowerCase().matches(".*\\.(litematic|schem|schematic)$")) name = name + ".litematic";
+        File file = new File(new File(mc.gameDirectory, "schematics"), name);
+        if (!file.isFile()) {
+            StartBuildMod.chat("\u00A7cNo such schematic: " + name);
+            return 0;
+        }
+        SchematicModel m = SchematicModel.read(LitematicaBridge.loadSchematic(file.toPath().getParent(), name));
+        if (m == null) {
+            StartBuildMod.chat("\u00A7cCould not read " + name + ".");
+            return 0;
+        }
+        PlacementFinder.Wish wish = PlacementFinder.parseWish(wishText);
+        int radius = Math.max(48, mc.options.getEffectiveRenderDistance() * 16 - Math.max(m.sizeX, m.sizeZ) - 16);
+        long t0 = System.currentTimeMillis();
+        List<PlacementFinder.Result> found = PlacementFinder.find(mc.level, mc.player.blockPosition(), radius, m, wish, 5);
+        StartBuildMod.LOGGER.info("[StartBuild] findsite {} wish={} radius={} -> {} site(s) in {} ms",
+                name, wish, radius, found.size(), System.currentTimeMillis() - t0);
+        if (found.isEmpty()) {
+            StartBuildMod.chat("\u00A7eNo good spot within " + radius + " blocks"
+                    + (wish == PlacementFinder.Wish.WATER ? " next to water" : "") + ". Fly somewhere else and try again.");
+            return 0;
+        }
+        siteChoices = found;
+        siteIndex = 0;
+        siteName = name;
+        return showSite();
+    }
+
+    static int nextSite() {
+        if (siteChoices.isEmpty()) {
+            StartBuildMod.chat("\u00A7eRun /findsite <name> <wish> first.");
+            return 0;
+        }
+        siteIndex = (siteIndex + 1) % siteChoices.size();
+        return showSite();
+    }
+
+    private static int showSite() {
+        Minecraft mc = Minecraft.getInstance();
+        PlacementFinder.Result r = siteChoices.get(siteIndex);
+        File file = new File(new File(mc.gameDirectory, "schematics"), siteName);
+        Object schematic = LitematicaBridge.loadSchematic(file.toPath().getParent(), siteName);
+        if (LitematicaBridge.place(schematic, r.origin(), "preview " + siteName, true)[0] <= 0) {
+            StartBuildMod.chat("\u00A7cLitematica could not show the site.");
+            return 0;
+        }
+        previewName = siteName;
+        previewOrigin = r.origin();
+        // A viewpoint: outside the near corner, above, looking in.
+        BlockPos o = r.origin();
+        StartBuildMod.runServerCommand("tp @s " + (o.getX() - 12) + " " + (o.getY() + 18) + " " + (o.getZ() - 12) + " -45 35");
+        StartBuildMod.chat(String.format("Site %d/%d at %s: %s%s%s", siteIndex + 1, siteChoices.size(),
+                o.toShortString(),
+                r.overhang() == 0 && r.buried() == 0 ? "sits flush on the ground" : "ground unevenness " + (r.overhang() + r.buried()),
+                r.waterDist() < 40 ? ", water " + r.waterDist() + " blocks away" : "",
+                r.obstacles() > 0 ? ", ~" + r.obstacles() + " trees/rocks inside" : ""));
+        StartBuildMod.chat("/startbuild confirm to build here, /findsite next for another, or nudge it with Litematica first.");
         return 1;
     }
 

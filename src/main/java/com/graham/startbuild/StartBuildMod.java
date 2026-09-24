@@ -129,6 +129,18 @@ public class StartBuildMod implements ClientModInitializer {
                                                         IntegerArgumentType.getInteger(context, "radius"));
                                             })))));
 
+            // Let the mod choose: "/findsite whimsical_halloween_80 near a river or lake".
+            dispatcher.register(ClientCommands.literal("findsite")
+                    .then(ClientCommands.literal("next")
+                            .executes(context -> NaturalSession.nextSite()))
+                    .then(ClientCommands.argument("name", StringArgumentType.word())
+                            .executes(context -> NaturalSession.findSite(
+                                    StringArgumentType.getString(context, "name"), ""))
+                            .then(ClientCommands.argument("wish", StringArgumentType.greedyString())
+                                    .executes(context -> NaturalSession.findSite(
+                                            StringArgumentType.getString(context, "name"),
+                                            StringArgumentType.getString(context, "wish"))))));
+
             dispatcher.register(ClientCommands.literal("previewbuild")
                     .then(ClientCommands.literal("off")
                             .executes(context -> NaturalSession.clearPreview()))
