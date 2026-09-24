@@ -71,6 +71,10 @@ final class Terraformer {
         int[] ground = new int[w * d];
         int[] top = new int[w * d];                        // first air above everything, leaves included
         boolean[] wet = new boolean[w * d];
+        // Each column keeps its OWN ground when reshaped - grass stays grass, a sandy patch stays sand, snow
+        // only where there was snow - so banks blend in (one site-wide block put beach sand into a taiga).
+        BlockState[] colTop = new BlockState[w * d], colSub = new BlockState[w * d];
+        boolean[] colSnow = new boolean[w * d];
         Map<BlockState, Integer> surfTally = new HashMap<>(), subTally = new HashMap<>();
         int snowCols = 0, dryCols = 0;
         for (int dz = 0; dz < d; dz++) {
@@ -85,6 +89,12 @@ final class Terraformer {
                 top[i] = level.getHeight(Heightmap.Types.MOTION_BLOCKING, x, z);
                 BlockState gs = level.getBlockState(new BlockPos(x, g, z));
                 wet[i] = !gs.getFluidState().isEmpty();
+                if (!wet[i] && PlacementFinder.naturalGround(gs)) {
+                    colTop[i] = gs.getBlock().defaultBlockState();
+                    BlockState under = level.getBlockState(new BlockPos(x, g - 1, z));
+                    if (under.isSolid() && PlacementFinder.naturalGround(under)) colSub[i] = under.getBlock().defaultBlockState();
+                    colSnow[i] = level.getBlockState(new BlockPos(x, g + 1, z)).is(Blocks.SNOW);
+                }
                 if (wet[i] || distToFoot(x, z, fx1, fz1, fx2, fz2) > radius + 4) continue;   // tally near the site
                 if (!PlacementFinder.naturalGround(gs)) continue;   // a structure's floor is not "the ground"
                 dryCols++;
@@ -142,13 +152,15 @@ final class Terraformer {
                     if (!foot && (s.is(BlockTags.LOGS) || s.is(BlockTags.LEAVES) || isWood(s))) continue;
                     if (clearable(level, p, s)) clear.put(p, air);
                 }
+                BlockState mySurface = colTop[i] != null ? colTop[i] : surface;
+                BlockState mySub = colSub[i] != null ? colSub[i] : subsurface;
                 if (t < g) {
                     BlockPos p = new BlockPos(x, t, z);
-                    if (!level.getBlockState(p).is(surface.getBlock())) fill.put(p, surface);
+                    if (!level.getBlockState(p).is(mySurface.getBlock())) fill.put(p, mySurface);
                 } else if (t > g) {
-                    for (int y = g + 1; y <= t; y++) fill.put(new BlockPos(x, y, z), y == t ? surface : subsurface);
+                    for (int y = g + 1; y <= t; y++) fill.put(new BlockPos(x, y, z), y == t ? mySurface : mySub);
                 }
-                if (snowy && !foot && t != g) fill.put(new BlockPos(x, t + 1, z), Blocks.SNOW.defaultBlockState());
+                if ((colTop[i] != null ? colSnow[i] : snowy) && !foot && t != g) fill.put(new BlockPos(x, t + 1, z), Blocks.SNOW.defaultBlockState());
             }
         }
 
