@@ -1,4 +1,4 @@
-<#
+﻿<#
     StartBuild launcher
     ==================
     One double-click: makes sure the build-recording Prism instance exists with the right mod set,
@@ -39,7 +39,11 @@ param(
     [switch] $Force,
     [switch] $NoDatapacks,
     [switch] $NoShaderpack,
-    [ValidateSet('Keep', 'On', 'Off')] [string] $Shaders = 'Keep'
+    [ValidateSet('Keep', 'On', 'Off')] [string] $Shaders = 'Keep',
+    # One double-click = open the world and build this schematic by itself, recorded by Flashback.
+    [string] $Build = '',   # set (e.g. -Build haunted_80) to open the world and build hands-free
+    [string] $World = 'New World (1)',
+    [switch] $NoAutoBuild
 )
 
 $ErrorActionPreference = 'Stop'
@@ -55,7 +59,9 @@ $BuildDir  = Join-Path $RepoRoot 'staging\flashback-startbuild-20260922\build\li
 # rebuilding the mod never requires editing this script. The version comes from the file name and
 # deliberately beats LastWriteTime: an older jar touched later (re-downloaded, copied, restored from a
 # backup) would otherwise silently count as the "newest" and get installed instead.
-$BuildCandidates = Get-ChildItem $BuildDir -Filter 'startbuild-*.jar' -ErrorAction SilentlyContinue | ForEach-Object {
+# Claude Code builds in the repo itself; the old staging copy is still honoured. Highest version wins.
+$RepoBuildDir = Join-Path (Split-Path $RepoRoot -Parent) 'Build-Automation-Tool\build\libs'
+$BuildCandidates = Get-ChildItem @($BuildDir, $RepoBuildDir) -Filter 'startbuild-*.jar' -ErrorAction SilentlyContinue | ForEach-Object {
     $v = [version]'0.0.0'
     if ($_.Name -match '^startbuild-(\d+\.\d+\.\d+)\.jar$') { $v = [version]$Matches[1] }
     [pscustomobject]@{ File = $_; Version = $v }
@@ -560,18 +566,38 @@ if (-not $NoShaderpack) {
     }
 }
 
+# ---------------------------------------------------------------- 3b. hands-free build
+# The mod watches for config\startbuild-autorun. Once a world has loaded it deletes the file, walks to a
+# fresh patch of ground, starts Flashback and builds the schematic named inside it - no typing at all.
+$gameRunning = [bool](Get-Process javaw -ErrorAction SilentlyContinue)
+if (-not $NoAutoBuild -and $Build) {
+    $flag = Join-Path $GameDir 'config\startbuild-autorun'
+    New-Item -ItemType Directory -Force -Path (Split-Path $flag -Parent) | Out-Null
+    Set-Content -Path $flag -Value $Build -NoNewline -Encoding ASCII
+    Write-Ok "auto-build armed: $Build (starts by itself once the world is loaded)"
+}
+
 # ---------------------------------------------------------------- 4. launch
+if ($gameRunning -and -not $NoLaunch) {
+    Write-Step 'Minecraft is already running'
+    Write-Note 'the build starts in the open world within a few seconds (close the game first if you want the mod updated)'
+    Start-Sleep -Seconds 4
+    exit 0
+}
 if ($NoLaunch) {
     Write-Step 'Setup only (-NoLaunch) - not starting Minecraft'
     exit 0
 }
 
 Write-Step "Launching '$Instance'"
-Write-Host '   Recipe once in game:' -ForegroundColor White
-Write-Host '     1. materials in your inventory, then   #set allowInventory true'
-Write-Host '     2. place the schematic in Litematica (M)'
-Write-Host '     3. /startbuild'
+Write-Host '   In game: stand where you want the build corner, then  /startbuild place <name>' -ForegroundColor White
+Write-Host '   Manual: /startbuild auto <name>  (fresh site)   /startbuild place <name>  (here)   /stopbuild'
 Write-Log "launch instance=$Instance"
-Start-Process -FilePath $PrismExe -ArgumentList @('-l', $Instance) | Out-Null
+$launchArgs = @('-l', $Instance)
+if (-not $NoAutoBuild -and $Build -and $World) {
+    # Prism quick-play: straight into the world, no menus to click.
+    $launchArgs += @('-w', ('"' + $World + '"'))
+}
+Start-Process -FilePath $PrismExe -ArgumentList $launchArgs | Out-Null
 Write-Ok 'Prism Launcher told to start - the game window should appear shortly'
 exit 0
