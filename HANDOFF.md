@@ -1,6 +1,6 @@
 # HANDOFF — Build Automation Tool (StartBuild 2.6.x)
 
-> Read this first. Last updated 2026-09-24, mod version **2.6.0**, branch `natural-builder-2.0`.
+> Read this first. Last updated 2026-09-24, mod version **2.6.1**, branch `natural-builder-2.0`.
 > The Baritone-era docs (1.x, why Baritone could not do this) are archived in `docs/`.
 
 ## 1. What it is
@@ -40,7 +40,14 @@ overlays on camera); no skipped blocks; runs unattended; site prep is done by th
    - two-step blocks: farmland (dirt + hoe), dirt path (dirt + shovel), potted plants (pot + plant),
      crops (seed + bone meal), water (bucket), nether portal (obsidian frame + flint & steel);
    - blocks come from the creative inventory (pick-block style); never waits on anything — a stuck cell
-     is parked and retried later; final pass re-checks the whole build against the world.
+     is parked and retried later; final pass re-checks the whole build against the world;
+   - flying (2.6.1): straight if clear, else A* through the air (round walls, out through doors); if shut
+     in with no way round, the path goes through the fewest blocks and the first is broken ("shut in:
+     breaking ..." in the log) — a build block broken that way is parked and rebuilt later. Unreachable
+     temporary blocks are retried after a minute instead of every tick (that stalled a 2.5.1 take at
+     10,041/15,248 under the roof for 27+ min);
+   - watchdog (`NaturalSession.watchdog`): 3 min without progress → replan everything; again → teleport to
+     open air above the work and replan; again → give up the rest of that stage and carry on (logged).
 6. Stops `stopDelaySeconds` after the last block, adds a Flashback marker, saves the replay.
    If nothing could be placed at all, it aborts instead of saving an empty take.
 

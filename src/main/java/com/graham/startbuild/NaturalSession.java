@@ -166,6 +166,8 @@ final class NaturalSession {
         stage = Stage.BUILD;
         terrainBroken = 0;
         terrainPlaced = 0;
+        stalls = 0;
+        stallMark = -1;
         state = State.PREPARING;
         StartBuildMod.LOGGER.info("[StartBuild] natural build of {} ({}x{}x{}, {} blocks) requested",
                 name, model.sizeX, model.sizeY, model.sizeZ, model.solidCount);
@@ -628,6 +630,7 @@ final class NaturalSession {
 
     private static void tickBuilding(Minecraft mc) {
         builder.tick();
+        watchdog(mc);
 
         // Mobs (superflat slimes especially) block placement and wander into shot; clear them quietly.
         if (builder.ticks % 400 == 1) {
@@ -650,6 +653,8 @@ final class NaturalSession {
                     (System.currentTimeMillis() - buildStartMillis) / 60000);
             terrainBroken += builder.broken;
             terrainPlaced += builder.placed;
+            stalls = 0;
+            stallMark = -1;
             if (stage == Stage.CLEAR && terraform.fill() != null) {
                 stage = Stage.FILL;
                 builder = new NaturalBuilder(terraform.fill(), terraform.fillOrigin(), config.ticksPerBlock);
@@ -687,6 +692,47 @@ final class NaturalSession {
             StartBuildMod.LOGGER.info("[StartBuild] last block placed; recording continues {}s",
                     config.stopDelaySeconds);
         }
+    }
+
+    /** No progress for this long -> the watchdog steps in (and again each time after that). */
+    private static final int STALL_TICKS = 20 * 60 * 3;
+    private static int stalls;
+    private static long stallMark = -1;
+
+    /**
+     * Unattended runs must never hang. If the current stage makes no progress for 3 minutes:
+     *   1st time - forget all plans and retry everything left from scratch;
+     *   2nd time - also move the player to open air above the work (it may be shut in) and retry;
+     *   3rd time - give up on what is left of this stage and carry on (the build stage then finishes and
+     *              the take is saved), logging exactly what was left.
+     * Progress in between resets the count.
+     */
+    private static void watchdog(Minecraft mc) {
+        if (builder.lastProgressTick > stallMark) {
+            stalls = 0;
+        }
+        if (builder.isFinished() || builder.ticks - builder.lastProgressTick < STALL_TICKS) return;
+        stalls++;
+        String where = stage.label + ", " + builder.remaining() + " left, last problem: " + builder.lastProblem();
+        if (stalls == 1) {
+            StartBuildMod.LOGGER.warn("[StartBuild] watchdog: no progress for 3 min ({}) - replanning", where);
+            builder.recover();
+        } else if (stalls == 2) {
+            BlockPos p = builder.escapePoint();
+            for (int k = 0; k < 64 && !(isFree(mc, p) && isFree(mc, p.above())); k++) p = p.above();
+            StartBuildMod.LOGGER.warn("[StartBuild] watchdog: still stuck ({}) - moving the player to {}", where, p);
+            StartBuildMod.runServerCommand("tp @s " + (p.getX() + 0.5) + " " + p.getY() + " " + (p.getZ() + 0.5));
+            builder.recover();
+        } else {
+            StartBuildMod.LOGGER.warn("[StartBuild] watchdog: giving up on the rest of this stage ({})", where);
+            builder.giveUp();
+            if (stage == Stage.BUILD) rechecks = 2;     // no final re-check loop on cells that cannot be done
+        }
+        stallMark = builder.lastProgressTick;
+    }
+
+    private static boolean isFree(Minecraft mc, BlockPos p) {
+        return mc.level.getBlockState(p).getCollisionShape(mc.level, p).isEmpty();
     }
 
     private static void finish(Minecraft mc) {
