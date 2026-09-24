@@ -486,7 +486,7 @@ final class RenderDirector {
         Files.createDirectories(folder);
         finalOutput = folder.resolve(job.getOrDefault("output", "build-short-" + style + ".mp4"));
         pendingMusic = music;
-        musicStart = num("musicStart", 0);
+        musicStart = num("musicStart", -1);                           // -1 = where the song gets going
         output = music == null ? finalOutput
                 : folder.resolve(finalOutput.getFileName().toString().replace(".mp4", "-silent.mp4"));
         Files.deleteIfExists(output);

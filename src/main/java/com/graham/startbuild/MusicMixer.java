@@ -24,8 +24,12 @@ final class MusicMixer {
      * Standalone use (no game needed - Flashback's jar carries the FFmpeg natives):
      *   java -cp "Flashback.jar;<mod classes>" com.graham.startbuild.MusicMixer video music out [startSec] [encoder]
      */
-    public static void main(String[] args) {
-        double start = args.length > 3 ? Double.parseDouble(args[3]) : 0;
+    public static void main(String[] args) throws Exception {
+        if (args[0].equals("probe")) {                                   // how loud is the audio, per 5 s?
+            for (int i = 1; i < args.length; i++) System.out.println(probe(Path.of(args[i])));
+            return;
+        }
+        double start = args.length > 3 ? Double.parseDouble(args[3]) : -1;   // -1 = where the song gets going
         String enc = args.length > 4 ? args[4] : "h264_nvenc";
         String err = mix(Path.of(args[0]), Path.of(args[1]), Path.of(args[2]), enc, 16_000_000, start);
         System.out.println(err == null ? "ok " + args[2] : "FAILED " + err);
@@ -36,8 +40,88 @@ final class MusicMixer {
         return mix(video, music, out, encoder, bitrate, 0);
     }
 
-    /** As above, starting the music `startSec` into the track (skip a slow intro to where it gets going). */
+    /** Target loudness (RMS of 16-bit samples) every song is brought to: a strong, even level. */
+    private static final double TARGET_RMS = 9000;
+
+    /**
+     * Loudness of a song per half second (RMS), for choosing where to start it and how much to boost it.
+     * @return {rms per 0.5 s...}
+     */
+    static double[] loudness(Path music) throws Exception {
+        Class<?> grabberCls = Class.forName("org.bytedeco.javacv.FFmpegFrameGrabber");
+        Class<?> frameCls = Class.forName("org.bytedeco.javacv.Frame");
+        Object g = grabberCls.getConstructor(String.class).newInstance(music.toString());
+        call(g, "setSampleFormat", int.class, 1);
+        call(g, "start");
+        java.util.List<Double> out = new java.util.ArrayList<>();
+        double sum = 0;
+        long n = 0, window = 0;
+        Object f;
+        try {
+            while ((f = grabberCls.getMethod("grabSamples").invoke(g)) != null) {
+                long w = (long) call(g, "getTimestamp") / 500_000;
+                if (w > window) {
+                    out.add(n == 0 ? 0 : Math.sqrt(sum / n));
+                    sum = 0;
+                    n = 0;
+                    window = w;
+                }
+                for (Object b : (Object[]) frameCls.getField("samples").get(f)) {
+                    if (!(b instanceof ShortBuffer s)) continue;
+                    for (int i = s.position(); i < s.limit(); i++) {
+                        sum += (double) s.get(i) * s.get(i);
+                        n++;
+                    }
+                }
+            }
+        } finally {
+            quietly(g, "release");
+        }
+        return out.stream().mapToDouble(Double::doubleValue).toArray();
+    }
+
+    /**
+     * Where a song gets going: the first half-second that reaches half the song's typical (median) loudness,
+     * backed up 1 s so it does not start mid-hit. 0 if it is loud from the start.
+     */
+    static double autoStart(double[] rms) {
+        if (rms.length == 0) return 0;
+        double[] sorted = rms.clone();
+        java.util.Arrays.sort(sorted);
+        double typical = sorted[sorted.length / 2];
+        for (int i = 0; i < rms.length; i++) {
+            if (rms[i] >= typical * 0.5) return Math.max(0, i * 0.5 - 1.0);
+        }
+        return 0;
+    }
+
+    /** Gain that brings the song's typical loudness to TARGET_RMS (never cut, at most x4). */
+    static double gainFor(double[] rms) {
+        if (rms.length == 0) return 1;
+        double[] sorted = rms.clone();
+        java.util.Arrays.sort(sorted);
+        double typical = sorted[sorted.length / 2];
+        return typical <= 1 ? 1 : Math.max(1, Math.min(4, TARGET_RMS / typical));
+    }
+
+    /**
+     * As above, starting the music `startSec` into the track - or, if negative, where the song gets going
+     * (automatic) - and bringing it to an even loudness.
+     */
     static String mix(Path video, Path music, Path out, String encoder, int bitrate, double startSec) {
+        double gain = 1;
+        try {
+            double[] rms = loudness(music);
+            if (startSec < 0) startSec = autoStart(rms);
+            gain = gainFor(rms);
+            System.out.printf("music %s: start %.1f s, gain x%.2f%n", music.getFileName(), startSec, gain);
+        } catch (Throwable t) {
+            if (startSec < 0) startSec = 0;
+        }
+        return mixAt(video, music, out, encoder, bitrate, startSec, gain);
+    }
+
+    private static String mixAt(Path video, Path music, Path out, String encoder, int bitrate, double startSec, double gain) {
         Object vg = null, ag = null, rec = null;
         try {
             Class<?> grabberCls = Class.forName("org.bytedeco.javacv.FFmpegFrameGrabber");
@@ -85,7 +169,8 @@ final class MusicMixer {
                         audioDone = true;
                         break;
                     }
-                    if (at > fadeFrom) fade(a, frameCls, Math.max(0, (videoLen - at) / 2_000_000.0));
+                    double g = gain * (at > fadeFrom ? Math.max(0, (videoLen - at) / 2_000_000.0) : 1);
+                    if (g != 1) fade(a, frameCls, g);
                     record.invoke(rec, a);
                 }
             }
@@ -101,13 +186,48 @@ final class MusicMixer {
         }
     }
 
-    /** Scale a samples frame (S16) by `gain`, for the fade-out. */
+    /** Audio stream facts and RMS loudness (0-32767) per 5 s window - to check a mix without listening. */
+    static String probe(Path file) throws Exception {
+        Class<?> grabberCls = Class.forName("org.bytedeco.javacv.FFmpegFrameGrabber");
+        Class<?> frameCls = Class.forName("org.bytedeco.javacv.Frame");
+        Object g = grabberCls.getConstructor(String.class).newInstance(file.toString());
+        call(g, "setSampleFormat", int.class, 1);
+        call(g, "start");
+        StringBuilder sb = new StringBuilder(file.getFileName() + ": audio streams=" + call(g, "hasAudio")
+                + " rate=" + call(g, "getSampleRate") + " ch=" + call(g, "getAudioChannels") + " | rms/5s:");
+        double sum = 0;
+        long n = 0, window = 0;
+        Object f;
+        while ((f = grabberCls.getMethod("grabSamples").invoke(g)) != null) {
+            long t = (long) call(g, "getTimestamp");
+            if (t / 5_000_000 > window) {
+                sb.append(' ').append(n == 0 ? 0 : (int) Math.sqrt(sum / n));
+                sum = 0;
+                n = 0;
+                window = t / 5_000_000;
+            }
+            for (Object b : (Object[]) frameCls.getField("samples").get(f)) {
+                if (!(b instanceof ShortBuffer s)) continue;
+                for (int i = s.position(); i < s.limit(); i++) {
+                    sum += (double) s.get(i) * s.get(i);
+                    n++;
+                }
+            }
+        }
+        sb.append(' ').append(n == 0 ? 0 : (int) Math.sqrt(sum / n));
+        quietly(g, "release");
+        return sb.toString();
+    }
+
+    /** Scale a samples frame (S16) by `gain` (boost and fade-out), clipped to the 16-bit range. */
     private static void fade(Object frame, Class<?> frameCls, double gain) throws Exception {
         Object[] samples = (Object[]) frameCls.getField("samples").get(frame);
         if (samples == null) return;
         for (Object b : samples) {
             if (!(b instanceof ShortBuffer sb)) continue;
-            for (int i = sb.position(); i < sb.limit(); i++) sb.put(i, (short) (sb.get(i) * gain));
+            for (int i = sb.position(); i < sb.limit(); i++) {
+                sb.put(i, (short) Math.max(-32767, Math.min(32767, Math.round(sb.get(i) * gain))));
+            }
         }
     }
 
