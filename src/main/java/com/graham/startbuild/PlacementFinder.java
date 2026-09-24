@@ -3,7 +3,9 @@ package com.graham.startbuild;
 import net.minecraft.client.multiplayer.ClientLevel;
 import net.minecraft.core.BlockPos;
 import net.minecraft.core.Holder;
+import net.minecraft.tags.BlockTags;
 import net.minecraft.world.level.biome.Biome;
+import net.minecraft.world.level.block.Blocks;
 import net.minecraft.world.level.block.state.BlockState;
 import net.minecraft.world.level.chunk.EmptyLevelChunk;
 import net.minecraft.world.level.chunk.LevelChunk;
@@ -102,13 +104,33 @@ final class PlacementFinder {
         return false;
     }
 
+    /**
+     * Natural terrain a site may stand on: soil, sand, stone, gravel, clay, snow, ice, terracotta... Anything
+     * else at ground level (bricks, planks, a path, a build's floor) means a structure is there.
+     */
+    static boolean naturalGround(BlockState s) {
+        return s.is(BlockTags.OVERWORLD_CARVER_REPLACEABLES) || s.is(BlockTags.DIRT) || s.is(BlockTags.SAND)
+                || s.is(BlockTags.BASE_STONE_OVERWORLD) || s.is(BlockTags.TERRACOTTA) || s.is(BlockTags.ICE)
+                || s.is(BlockTags.SNOW) || s.is(Blocks.GRAVEL) || s.is(Blocks.CLAY) || s.is(Blocks.MUD)
+                || s.is(Blocks.SNOW_BLOCK) || s.is(Blocks.PACKED_ICE) || s.is(Blocks.MOSS_BLOCK);
+    }
+
+    /** Count of "built" columns in [x1..x2] x [z1..z2] (clipped to the grid), from the prefix sums. */
+    private static int builtIn(int[] sum, int size, int x1, int z1, int x2, int z2) {
+        x1 = Math.max(0, x1); z1 = Math.max(0, z1); x2 = Math.min(size - 1, x2); z2 = Math.min(size - 1, z2);
+        if (x1 > x2 || z1 > z2) return 0;
+        int w = size + 1;
+        return sum[(z2 + 1) * w + x2 + 1] - sum[z1 * w + x2 + 1] - sum[(z2 + 1) * w + x1] + sum[z1 * w + x1];
+    }
+
     /** @return up to `wanted` sites, best first. */
     static List<Result> find(ClientLevel level, BlockPos centre, int radius, SchematicModel m, Wish wish, int wanted) {
         // 1. One pass over the area: surface height and whether the surface is water, per column.
         int size = radius * 2 + Math.max(m.sizeX, m.sizeZ) + 16;
         int x0 = centre.getX() - radius - 8, z0 = centre.getZ() - radius - 8;
-        int[] surf = new int[size * size];          // y of the topmost solid-or-fluid block; MIN = unloaded
+        int[] surf = new int[size * size];          // y of the natural ground (through trees); MIN = unloaded
         boolean[] water = new boolean[size * size];
+        boolean[] built = new boolean[size * size]; // the top block is not natural terrain: a structure
         for (int dz = 0; dz < size; dz++) {
             for (int dx = 0; dx < size; dx++) {
                 int wx = x0 + dx, wz = z0 + dz, i = dz * size + dx;
@@ -116,7 +138,7 @@ final class PlacementFinder {
                     surf[i] = Integer.MIN_VALUE;
                     continue;
                 }
-                int h = level.getHeight(Heightmap.Types.MOTION_BLOCKING_NO_LEAVES, wx, wz) - 1;
+                int h = Terraformer.groundAt(level, wx, wz);
                 if (h < level.getMinY()) {               // no ground at all (void / not really there)
                     surf[i] = Integer.MIN_VALUE;
                     continue;
@@ -124,6 +146,15 @@ final class PlacementFinder {
                 surf[i] = h;
                 BlockState s = level.getBlockState(new BlockPos(wx, h, wz));
                 water[i] = !s.getFluidState().isEmpty() && s.getFluidState().getType().isSame(Fluids.WATER);
+                built[i] = s.getFluidState().isEmpty() && !naturalGround(s);
+            }
+        }
+        // Prefix sums over "built", so "any structure near this footprint?" is four lookups.
+        int[] builtSum = new int[(size + 1) * (size + 1)];
+        for (int dz = 0; dz < size; dz++) {
+            for (int dx = 0; dx < size; dx++) {
+                builtSum[(dz + 1) * (size + 1) + dx + 1] = (built[dz * size + dx] ? 1 : 0)
+                        + builtSum[dz * (size + 1) + dx + 1] + builtSum[(dz + 1) * (size + 1) + dx] - builtSum[dz * (size + 1) + dx];
             }
         }
         // Distance (in columns) from each column to the nearest water, capped - a cheap two-pass chamfer.
@@ -170,6 +201,9 @@ final class PlacementFinder {
                     near = Math.min(near, wd[i]);
                 }
                 if (bad || wet > 0) continue;
+                // Never on or next to anything man-made (an earlier build, a village): the character would
+                // tear it down as "terrain".
+                if (builtIn(builtSum, size, cx - 4, cz - 4, cx + m.sizeX + 3, cz + m.sizeZ + 3) > 0) continue;
                 int[] sorted = java.util.Arrays.copyOf(hs, n);
                 java.util.Arrays.sort(sorted);
                 int ground = sorted[n / 2];                      // base sits on the median surface

@@ -86,6 +86,7 @@ final class Terraformer {
                 BlockState gs = level.getBlockState(new BlockPos(x, g, z));
                 wet[i] = !gs.getFluidState().isEmpty();
                 if (wet[i] || distToFoot(x, z, fx1, fz1, fx2, fz2) > radius + 4) continue;   // tally near the site
+                if (!PlacementFinder.naturalGround(gs)) continue;   // a structure's floor is not "the ground"
                 dryCols++;
                 surfTally.merge(gs.getBlock().defaultBlockState(), 1, Integer::sum);
                 for (int k = 1; k <= 3; k++) {
@@ -302,8 +303,18 @@ final class Terraformer {
                     }
                 }
             }
+            // A tree has leaves on it (or is a giant mushroom). Bare logs - a cabin, a fence of logs, an
+            // earlier build - are not trees and are never felled as such.
+            boolean tree = false;
+            for (BlockPos p : wood) {
+                if (!level.getBlockState(p).is(BlockTags.LOGS)) { tree = true; break; }
+                for (Direction dir : Direction.values()) {
+                    if (level.getBlockState(p.relative(dir)).is(BlockTags.LEAVES)) { tree = true; break; }
+                }
+                if (tree) break;
+            }
             allWood.addAll(wood);
-            trunks.add(wood);
+            if (tree) trunks.add(wood);
         }
         List<Map<BlockPos, BlockState>> trees = new ArrayList<>();
         if (trunks.isEmpty()) return trees;
