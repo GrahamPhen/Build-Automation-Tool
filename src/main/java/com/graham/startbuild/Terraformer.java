@@ -272,7 +272,11 @@ final class Terraformer {
                 for (int y = Math.min(target[i], ground[i]) + 1; y <= top[i]; y++) {
                     BlockPos p = new BlockPos(x, y, z);
                     BlockState s = level.getBlockState(p);
-                    if (isWood(s) && (changed || y <= boxTop)) {
+                    // Felled: a tree whose TRUNK stands where the ground changes, or anything woody inside
+                    // the build's space. A neighbour's branch merely hanging over a reshaped bank is not
+                    // reason enough (that used to fell whole neighbouring trees - slow, and bare-looking).
+                    boolean trunkBase = isWood(s) && !isWood(level.getBlockState(p.below()));
+                    if (isWood(s) && ((changed && trunkBase) || (inBox && y <= boxTop))) {
                         seeds.add(p);
                     } else if (inBox && y <= boxTop && s.is(BlockTags.LEAVES)) {
                         clear.put(p, air);                  // overhanging leaves inside the build's space

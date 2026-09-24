@@ -499,7 +499,7 @@ final class NaturalSession {
         long t0 = System.currentTimeMillis();
         List<PlacementFinder.Result> found = new ArrayList<>();
         int apart = Math.max(m.sizeX, m.sizeZ) + 24;
-        for (PlacementFinder.Result r : PlacementFinder.find(mc.level, centre, radius, m, wish, 20)) {
+        for (PlacementFinder.Result r : PlacementFinder.find(mc.level, centre, radius, m, wish, 40)) {
             BlockPos o = r.origin();
             if (shownSites.stream().anyMatch(s -> Math.abs(s.getX() - o.getX()) < apart && Math.abs(s.getZ() - o.getZ()) < apart)) {
                 continue;
@@ -695,6 +695,7 @@ final class NaturalSession {
                 }
             }
         }
+        applyGameSpeed(true);
         waitTicks = Math.max(20, config.preRollTicks());
         state = State.PRE_ROLL;
         StartBuildMod.LOGGER.info("[StartBuild] recording={} {} at {}", recordingByUs, schematicName, origin.toShortString());
@@ -878,7 +879,28 @@ final class NaturalSession {
         restoreOptions(Minecraft.getInstance());
     }
 
+    private static boolean speedApplied;
+
+    /**
+     * Optional: run the world faster than real time during a take (/tick rate). Everything - the character
+     * included - happens in game ticks and Flashback records game ticks, so the replay plays at normal
+     * speed while the take finishes sooner. Off (gameSpeed 1) until verified on this setup.
+     */
+    private static void applyGameSpeed(boolean on) {
+        double speed = config == null ? 1.0 : config.gameSpeed;
+        if (on && speed > 1.0) {
+            int rate = (int) Math.round(20 * Math.min(4.0, speed));
+            StartBuildMod.runServerCommand("tick rate " + rate);
+            speedApplied = true;
+            StartBuildMod.LOGGER.info("[StartBuild] game speed x{} (tick rate {})", speed, rate);
+        } else if (!on && speedApplied) {
+            StartBuildMod.runServerCommand("tick rate 20");
+            speedApplied = false;
+        }
+    }
+
     private static void restoreOptions(Minecraft mc) {
+        applyGameSpeed(false);
         if (savedPauseOnLostFocus != null && mc != null && mc.options != null) {
             mc.options.pauseOnLostFocus = savedPauseOnLostFocus;
         }

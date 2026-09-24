@@ -115,6 +115,28 @@ final class PlacementFinder {
                 || s.is(Blocks.SNOW_BLOCK) || s.is(Blocks.PACKED_ICE) || s.is(Blocks.MOSS_BLOCK);
     }
 
+    /**
+     * Rough blocks to dig or fill in the ring 1..12 around the footprint (sampled every 2 columns, so
+     * scaled by 4): how far each column's ground is from the base, beyond what a gentle 1-in-2 slope
+     * would leave untouched anyway.
+     */
+    static double ringEarthworks(int[] surf, int size, int cx, int cz, int sx, int sz, int ground) {
+        double sum = 0;
+        for (int z = cz - 12; z < cz + sz + 12; z += 2) {
+            for (int x = cx - 12; x < cx + sx + 12; x += 2) {
+                if (x >= cx && x < cx + sx && z >= cz && z < cz + sz) continue;
+                if (x < 0 || z < 0 || x >= size || z >= size) continue;
+                int h = surf[z * size + x];
+                if (h == Integer.MIN_VALUE) continue;
+                int dx = Math.max(0, Math.max(cx - x, x - (cx + sx - 1)));
+                int dz = Math.max(0, Math.max(cz - z, z - (cz + sz - 1)));
+                double free = Math.sqrt(dx * dx + dz * dz) * 0.5;       // what the slope absorbs
+                sum += Math.max(0, Math.abs(h - ground) - free);
+            }
+        }
+        return sum * 4;
+    }
+
     /** Count of "built" columns in [x1..x2] x [z1..z2] (clipped to the grid), from the prefix sums. */
     private static int builtIn(int[] sum, int size, int x1, int z1, int x2, int z2) {
         x1 = Math.max(0, x1); z1 = Math.max(0, z1); x2 = Math.min(size - 1, x2); z2 = Math.min(size - 1, z2);
@@ -216,6 +238,9 @@ final class PlacementFinder {
                 }
                 int ring = near;                                 // columns from the footprint to water
                 double cost = overhang * 3.0 + buried * 2.0;
+                // Earthworks around it: the terraforming blends the pad into the land over ~12 blocks, so
+                // height differences there are blocks the character has to dig or fill on camera.
+                cost += ringEarthworks(surf, size, cx, cz, m.sizeX, m.sizeZ, ground) * 1.5;
                 switch (wish) {
                     case WATER -> {
                         if (ring > 8) continue;                  // not by the water at all
@@ -256,7 +281,7 @@ final class PlacementFinder {
             boolean near = spread.stream().anyMatch(o -> Math.abs(o.origin().getX() - r.origin().getX()) < m.sizeX
                     && Math.abs(o.origin().getZ() - r.origin().getZ()) < m.sizeZ);
             if (!near) spread.add(r);
-            if (spread.size() >= 20) break;
+            if (spread.size() >= 40) break;
         }
         for (Result r : spread) {
             int obstacles = 0;
@@ -268,7 +293,8 @@ final class PlacementFinder {
                     }
                 }
             }
-            top.add(new Result(r.origin(), r.cost() + obstacles * 4.0, r.overhang(), r.buried(), obstacles * 8, r.waterDist()));
+            // Each sample stands for ~8 blocks the character has to fell or dig by hand before building.
+            top.add(new Result(r.origin(), r.cost() + obstacles * 8.0, r.overhang(), r.buried(), obstacles * 8, r.waterDist()));
         }
         top.sort((a, b) -> Double.compare(a.cost(), b.cost()));
         List<Result> out = new ArrayList<>();

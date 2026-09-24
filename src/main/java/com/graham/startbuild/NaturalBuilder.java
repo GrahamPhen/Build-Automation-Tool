@@ -69,11 +69,15 @@ final class NaturalBuilder {
     // ------------------------------------------------------------------ tuning
     /** Max eye-to-hit distance we plan for. Creative reach is 5.0; stay well inside it. */
     private static final double REACH = 4.3;
-    /** Blocks per tick when flying far. Creative sprint-flying is about 1.1; this reads as purposeful. */
+    /** Blocks per tick when working nearby, and when crossing the site (creative sprint-flying is ~1.1). */
     private static final double FLY_SPEED = 0.55;
+    private static final double FLY_SPEED_FAR = 1.0;
     private static final float MAX_YAW_STEP = 40f;
     private static final float MAX_PITCH_STEP = 30f;
-    private static final int VERIFY_TICKS = 2;
+    private static final int VERIFY_TICKS = 1;
+    /** At most one click every 4 ticks - 5 a second, vanilla's own right-click repeat rate. */
+    private static final int MIN_CLICK_TICKS = 4;
+    private long lastActTick = -100;
     private static final int MAX_ATTEMPTS = 4;
     private static final int SCAFFOLD_SEARCH_DEPTH = 5;
 
@@ -156,7 +160,7 @@ final class NaturalBuilder {
         this.model = model;
         this.origin = origin;
         this.clearing = clearing;
-        this.ticksPerBlock = Math.max(1, ticksPerBlock);
+        this.ticksPerBlock = Math.max(0, ticksPerBlock);
         this.status = new byte[model.states.length];
         this.retryAfter = new int[model.states.length];
         for (int i = 0; i < status.length; i++) {
@@ -207,7 +211,16 @@ final class NaturalBuilder {
             cooldown--;
         }
         phaseTicks++;
+        // Phases that finish at once run on in the same tick (check -> plan -> already in place -> aim), so
+        // no tick is wasted between blocks. The pace is set by MIN_CLICK_TICKS, a real player's click rate.
+        for (int step = 0; step < 4; step++) {
+            Phase before = phase;
+            tickPhase(mc, player, level);
+            if (phase == before || finished || phase == Phase.VERIFY) break;
+        }
+    }
 
+    private void tickPhase(Minecraft mc, LocalPlayer player, ClientLevel level) {
         switch (phase) {
             case PLAN -> {
                 if (cooldown > 0) {
@@ -261,8 +274,10 @@ final class NaturalBuilder {
                     }
                     return;
                 }
-                if (aim(player, current.hit) || phaseTicks > 12) {
+                boolean aimed = aim(player, current.hit) || phaseTicks > 12;
+                if (aimed && ticks - lastActTick >= MIN_CLICK_TICKS) {
                     act(mc, player, level, current);
+                    lastActTick = ticks;
                     enter(Phase.VERIFY);
                 }
             }
@@ -930,7 +945,8 @@ final class NaturalBuilder {
             }
             return false;
         }
-        double speed = Math.min(FLY_SPEED, Math.max(0.12, dist * 0.45));
+        // Crossing the site at sprint-fly speed, easing down to the working pace for the last few blocks.
+        double speed = Math.min(dist > 8 ? FLY_SPEED_FAR : FLY_SPEED, Math.max(0.12, dist * 0.45));
         Vec3 v = delta.normalize().scale(speed);
         player.setDeltaMovement(v);
         // Look where we are going when travelling, like a player would.

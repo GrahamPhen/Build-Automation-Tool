@@ -1,6 +1,6 @@
-# HANDOFF — Build Automation Tool (StartBuild 2.7.x)
+# HANDOFF — Build Automation Tool (StartBuild 2.8.x)
 
-> Read this first. Last updated 2026-09-24, mod version **2.7.0**, branch `natural-builder-2.0`.
+> Read this first. Last updated 2026-09-24, mod version **2.8.0**, branch `natural-builder-2.0`.
 > The Baritone-era docs (1.x, why Baritone could not do this) are archived in `docs/`.
 
 ## 1. What it is
@@ -53,6 +53,13 @@ overlays on camera); no skipped blocks; runs unattended; site prep is done by th
    which nothing of the build was placed (aborted, or /stopbuild during terraforming) is DISCARDED
    (`FlashbackBridge.cancelRecording`), never saved.
 
+Speed (2.8.0): phases that finish at once run on in the same tick and clicks are paced at most one per 4
+ticks (5/s, vanilla's right-click rate) instead of fixed waits; long flights at sprint-fly speed (1.0/tick);
+only trees whose TRUNK stands where the ground changes are felled; `/findsite` ranks sites by the
+earthworks around them (`ringEarthworks`) and weights trees/rocks inside x8 (shortlist 40). Optional
+`gameSpeed` (1 = off, max 4) runs `/tick rate 20*speed` during a take - off until it is verified that
+Flashback still plays the replay at normal speed.
+
 Safety nets (2.7.0): pause-safe (a paused game is not counted; `pauseOnLostFocus` is switched off during a
 take and restored after); every tick is guarded (an exception is logged, 40 in a row end the take); a take
 refuses to start / stops and saves under `minFreeDiskGB`, and stops after `maxBuildMinutes` (600); the
@@ -97,7 +104,7 @@ The 1.x Baritone flow (StartBuildSession, Baritone*, SiteFinder, TerrainPrep, St
 was deleted in 2.7.0; it is in git history. Baritone is not needed any more.
 
 Config fields: `ticksPerBlock` (0 = fastest, set to 0 on the owner's PC), `prepTerrain`, `terraformRadius`
-(12, grows to 24 on steep sites), `stopDelaySeconds` (30), `videoDaylight`, `startRecording`/`finishRecording`,
+(12, grows to 24 on steep sites), `gameSpeed` (1 = off), `stopDelaySeconds` (30), `videoDaylight`, `startRecording`/`finishRecording`,
 `forceQuicksave` (true — must be on unattended), `minFreeDiskGB` (5), `maxBuildMinutes` (600),
 `autoRunSchematic`/`autoRunWish`/`autoSiteAttempts` (8), `stopFileName`, `desktopNotification`.
 

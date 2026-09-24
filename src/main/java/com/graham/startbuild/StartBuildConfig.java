@@ -67,6 +67,13 @@ final class StartBuildConfig {
     /** How far (blocks) around the footprint the ground is reshaped, at least; steep sites use more. */
     public int terraformRadius = 12;
 
+    /**
+     * Run the world this many times faster during a take (/tick rate, max 4). The replay still plays at
+     * normal speed (Flashback records game ticks); the take just finishes sooner. 1 = off. Needs a PC
+     * that keeps up - watch for "Can't keep up" in the log.
+     */
+    public double gameSpeed = 1.0;
+
     /** Before recording: daylight and clear weather, so the replay is watchable. */
     public boolean videoDaylight = true;
 
