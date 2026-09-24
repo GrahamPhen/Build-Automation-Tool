@@ -27,7 +27,10 @@ and what is/isn't verified. `docs/` holds the obsolete Baritone-era notes; don't
 - Game log (the source of truth): `%APPDATA%\PrismLauncher\instances\BuildRecording\minecraft\logs\latest.log`.
   Builder progress lines: `[StartBuild] progress: N placed, M left, layer L, T min, last problem: ...`.
   Never trust the mod's own counters over the log/world.
+- World save regions in 26.2: `saves\<world>\dimensions\minecraft\overworld\region` (not `saves\<world>\region`).
 - Verify a finished build against the schematic: `node tools/cottage/verify-build.mjs <schematic> <regionDir> <ox> <oy> <oz>`.
+- Judge the terraforming without screenshots: `node tools/cottage/site-relief.mjs <regionDir> <ox> <oz> <sizeX> <sizeZ> [margin] [out.png]`
+  (hill-shaded relief + ground material, red = 3+ block steps; prints step counts and plant density).
 - Unit tests (pure logic: terraform heights, flight A*): `.\gradlew.bat test` (also run by `build`).
 - Never click/focus other windows while a take is recording — Minecraft pauses on focus loss.
 

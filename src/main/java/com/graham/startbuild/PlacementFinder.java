@@ -167,8 +167,9 @@ final class PlacementFinder {
                 }
                 surf[i] = h;
                 BlockState s = level.getBlockState(new BlockPos(wx, h, wz));
-                water[i] = !s.getFluidState().isEmpty() && s.getFluidState().getType().isSame(Fluids.WATER);
-                built[i] = s.getFluidState().isEmpty() && !naturalGround(s);
+                // Plain ice is a frozen lake or river: water for placement (a build may not stand on it).
+                water[i] = (!s.getFluidState().isEmpty() && s.getFluidState().getType().isSame(Fluids.WATER)) || s.is(Blocks.ICE);
+                built[i] = !water[i] && s.getFluidState().isEmpty() && !naturalGround(s);
             }
         }
         // Prefix sums over "built", so "any structure near this footprint?" is four lookups.

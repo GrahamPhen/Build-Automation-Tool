@@ -89,7 +89,7 @@ final class Terraformer {
                 ground[i] = g;
                 top[i] = level.getHeight(Heightmap.Types.MOTION_BLOCKING, x, z);
                 BlockState gs = level.getBlockState(new BlockPos(x, g, z));
-                wet[i] = !gs.getFluidState().isEmpty();
+                wet[i] = !gs.getFluidState().isEmpty() || gs.is(Blocks.ICE);    // a frozen lake is still a lake
                 if (!wet[i] && PlacementFinder.naturalGround(gs)) {
                     colTop[i] = gs.getBlock().defaultBlockState();
                     BlockState under = level.getBlockState(new BlockPos(x, g - 1, z));
