@@ -21,13 +21,14 @@ and what is/isn't verified. `docs/` holds the obsolete Baritone-era notes; don't
 - Install + launch: desktop icon "Minecraft - Build Recording" (runs
   `C:\Users\Graham\Codex\MineSurvive\tools\startbuild-launch.ps1`). It copies the newest jar into
   `%APPDATA%\PrismLauncher\instances\BuildRecording\minecraft\mods` — **only while Minecraft is closed**.
-  The launcher looks in both this repo's `build\libs` and the old staging folder
-  (`C:\Users\Graham\Codex\MineSurvive\staging\flashback-startbuild-20260922`).
+  The launcher looks in both this repo's `build\libs` and the staging folder
+  (`C:\Users\Graham\Codex\MineSurvive\staging\flashback-startbuild-20260922`). Keep the staging copy and
+  `MineSurvive\tools\startbuild-*.ps1` identical to this repo after every change.
 - Game log (the source of truth): `%APPDATA%\PrismLauncher\instances\BuildRecording\minecraft\logs\latest.log`.
   Builder progress lines: `[StartBuild] progress: N placed, M left, layer L, T min, last problem: ...`.
   Never trust the mod's own counters over the log/world.
 - Verify a finished build against the schematic: `node tools/cottage/verify-build.mjs <schematic> <regionDir> <ox> <oy> <oz>`.
-- Offline tests: `node tests/verify-geometry.mjs` etc. (cover the 1.x code).
+- Unit tests (pure logic: terraform heights, flight A*): `.\gradlew.bat test` (also run by `build`).
 - Never click/focus other windows while a take is recording — Minecraft pauses on focus loss.
 
 ## Git
@@ -38,6 +39,6 @@ and what is/isn't verified. `docs/` holds the obsolete Baritone-era notes; don't
 - Mojang mappings; `ResourceLocation` is `net.minecraft.resources.Identifier`.
 - Verify a signature before using it: `javap -cp <jar> <class>` against
   `%APPDATA%\PrismLauncher\libraries\com\mojang\minecraft\26.2\minecraft-26.2-client.jar`
-  (Litematica/Baritone/Flashback jars are in the instance `mods` folder). Other mods are reached only by
+  (Litematica/Flashback jars are in the instance `mods` folder). Other mods are reached only by
   reflection (`Reflect`, `*Bridge`), never compile-time.
 - Gamerules are snake_case in 26.2 (`send_command_feedback`, `advance_time`, ...).

@@ -1,5 +1,6 @@
 package com.graham.startbuild;
 
+import com.mojang.datafixers.util.Pair;
 import net.fabricmc.loader.api.FabricLoader;
 import net.minecraft.client.Minecraft;
 import net.minecraft.client.multiplayer.ClientLevel;
@@ -10,8 +11,7 @@ import net.minecraft.core.Holder;
 import net.minecraft.server.level.ServerLevel;
 import net.minecraft.world.level.GameType;
 import net.minecraft.world.level.biome.Biome;
-import net.minecraft.world.level.levelgen.Heightmap;
-import com.mojang.datafixers.util.Pair;
+import net.minecraft.world.level.block.state.BlockState;
 
 import java.io.File;
 import java.nio.file.Files;
@@ -21,14 +21,18 @@ import java.util.List;
 import java.util.concurrent.CompletableFuture;
 
 /**
- * One unattended take: pick/prepare the site, start Flashback, let {@link NaturalBuilder} build the whole
- * schematic by hand, then stop the recording a fixed delay after the last block.
+ * One unattended take: prepare the world, start Flashback, let the character terraform the site and then
+ * build the whole schematic by hand ({@link NaturalBuilder}), and stop the recording a fixed delay after
+ * the last block.
  *
- *   /startbuild place <name>   build here (the player's position is the schematic's corner)
- *   /startbuild auto  [name]   build on a fresh patch of ground next to the last automatic build
- *   config/startbuild-autorun  (written by the desktop launcher) - same as "auto" as soon as a world loads
+ *   /findsite <name> [wish] (+ /findsite next) then /startbuild confirm   - you pick the spot
+ *   /startbuild place <name>                                             - corner at your feet
+ *   /startbuild auto [name] [wish], or config/startbuild-autorun         - fully hands-free: find a site,
+ *                                                                          confirm it, terraform, build, save
  *
- * Everything the builder says goes to the log, not to chat, so nothing appears on camera.
+ * Rules this class enforces: nothing but the character on camera (no chat, no ghost, no /fill); the take
+ * always runs to an end (watchdog, error guard, pause-safe); an empty or failed take is discarded, never
+ * saved. Everything the builder says goes to the log, not to chat.
  */
 final class NaturalSession {
 
@@ -45,23 +49,13 @@ final class NaturalSession {
     private static long buildStartMillis;
     private static int autorunCheck;
     private static int ticksInWorld;
-    private static long lastPlaced;
-    private static int idleTicks;
     private static int rechecks;
+    private static int tickErrors;
+    private static Boolean savedPauseOnLostFocus;
 
-    /** What the character is doing: terraforming (clear, then fill), then the build itself. */
-    private enum Stage {
-        CLEAR("terraforming: clearing"), FILL("terraforming: filling"), BUILD("building");
-
-        final String label;
-
-        Stage(String label) {
-            this.label = label;
-        }
-    }
-
-    private static Stage stage = Stage.BUILD;
-    private static Terraformer.Plan terraform;
+    /** Terraforming stages (one per tree, then the ground: clear, fill), then the build itself. */
+    private static List<Terraformer.Part> parts = List.of();
+    private static int partIndex;
     private static long terrainBroken;
     private static long terrainPlaced;
 
@@ -72,6 +66,14 @@ final class NaturalSession {
         return state != State.IDLE;
     }
 
+    private static boolean building() {
+        return partIndex >= parts.size();
+    }
+
+    private static String stageLabel() {
+        return building() ? "building" : parts.get(partIndex).label();
+    }
+
     // ================================================================== starting
 
     static int startHere(String name) {
@@ -80,20 +82,26 @@ final class NaturalSession {
             StartBuildMod.chat("§cJoin a world first.");
             return 0;
         }
-        return start(name, mc.player.blockPosition(), false);
+        return start(name, mc.player.blockPosition());
     }
 
-    static int startAuto(String name) {
-        return start((name == null || name.isBlank()) ? StartBuildConfig.load().autoRunSchematic : name, null, true);
+    /**
+     * Fully hands-free: "[name] [wish words]" (both optional; the config supplies defaults). Searches for a
+     * natural site (exploring further away if nothing good is near), confirms the best one by itself, and
+     * the take then runs to the end.
+     */
+    static int startAuto(String nameAndWish) {
+        StartBuildConfig cfg = StartBuildConfig.load();
+        String text = nameAndWish == null ? "" : nameAndWish.trim();
+        String name = text.isEmpty() ? cfg.autoRunSchematic : text.split("\\s+", 2)[0];
+        String wish = text.contains(" ") ? text.split("\\s+", 2)[1] : cfg.autoRunWish;
+        StartBuildMod.LOGGER.info("[StartBuild] hands-free take: {} wish='{}'", name, wish);
+        return findSite(name, wish, true);
     }
 
-    private static int start(String rawName, BlockPos corner, boolean freshSite) {
+    private static int start(String rawName, BlockPos corner) {
         if (state != State.IDLE) {
             StartBuildMod.chat("§eA build is already running. /stopbuild first.");
-            return 0;
-        }
-        if (StartBuildSession.isBusy()) {
-            StartBuildMod.chat("§eThe old Baritone build session is running. /stopbuild first.");
             return 0;
         }
         Minecraft mc = Minecraft.getInstance();
@@ -107,72 +115,65 @@ final class NaturalSession {
             return 0;
         }
         config = StartBuildConfig.load();
-        String name = rawName.trim();
-        if (!name.toLowerCase().matches(".*\\.(litematic|schem|schematic)$")) {
-            name = name + ".litematic";
+        double freeGb = new File(mc.gameDirectory.getAbsolutePath()).getUsableSpace() / 1e9;
+        if (freeGb < config.minFreeDiskGB) {
+            StartBuildMod.chat(String.format("§cOnly %.1f GB free on the game drive (minimum %.0f GB). Not starting.",
+                    freeGb, config.minFreeDiskGB));
+            return 0;
         }
+        String name = schematicFileName(rawName);
         File file = new File(new File(mc.gameDirectory, "schematics"), name);
         if (!file.isFile()) {
             StartBuildMod.chat("§cNo such schematic: " + file.getAbsolutePath());
             return 0;
         }
-        Object schematic = LitematicaBridge.loadSchematic(file.toPath().getParent(), name);
-        model = SchematicModel.read(schematic);
+        model = SchematicModel.read(LitematicaBridge.loadSchematic(file.toPath().getParent(), name));
         if (model == null || model.solidCount == 0) {
             StartBuildMod.chat("§cCould not read " + name + ".");
             return 0;
         }
         schematicName = name;
+        resetSiteSearch();
 
-        // Anything else that could fight us for the player or draw on camera goes first.
-        if (BaritoneBridge.available() && BaritoneBridge.isBuildActive()) {
-            BaritoneBridge.cancelBuild();
+        // No ghost may be recorded: if it cannot be removed, do not start at all.
+        if (LitematicaBridge.clearPlacements() < 0) {
+            StartBuildMod.chat("§cCould not remove the Litematica preview (it would be recorded). Not starting.");
+            return 0;
         }
-        BaritoneBridge.applyVideoSettings();
-        LitematicaBridge.clearPlacements();
-
         if (mc.gameMode.getPlayerMode() != GameType.CREATIVE) {
             StartBuildMod.runServerCommand("gamemode creative");
         }
         applyWorldSettings();
+        // A focus change must not pause the game mid-take (the watchdog would see it as a stall).
+        savedPauseOnLostFocus = mc.options.pauseOnLostFocus;
+        mc.options.pauseOnLostFocus = false;
+        deleteStopFile();
 
-        if (freshSite) {
-            int x, z;
-            if (config.lastAutoOriginX != null && config.lastAutoOriginZ != null) {
-                x = config.lastAutoOriginX + model.sizeX + Math.max(16, config.autoSiteSpacing);
-                z = config.lastAutoOriginZ;
-            } else {
-                x = player.blockPosition().getX() + 16;
-                z = player.blockPosition().getZ() + 16;
-            }
-            config.lastAutoOriginX = x;
-            config.lastAutoOriginZ = z;
-            config.save();
-            // Y is found once the chunks there have loaded (PREPARING).
-            origin = new BlockPos(x, Integer.MIN_VALUE, z);
-            StartBuildMod.runServerCommand("tp @s " + (x - 4) + " " + (player.blockPosition().getY() + 20)
-                    + " " + (z - 4) + " -45 30");
-        } else {
-            origin = corner;
-            // Step off the corner cell, facing into the build.
-            StartBuildMod.runServerCommand("tp @s " + (corner.getX() - 3 + 0.5) + " " + (corner.getY() + 2)
-                    + " " + (corner.getZ() - 3 + 0.5) + " -45 30");
-        }
+        origin = corner;
+        // Step off the corner cell, facing into the build.
+        StartBuildMod.runServerCommand("tp @s " + (corner.getX() - 3 + 0.5) + " " + (corner.getY() + 2)
+                + " " + (corner.getZ() - 3 + 0.5) + " -45 30");
 
         builder = null;
         rechecks = 0;
         waitTicks = 0;
-        terraform = null;
-        stage = Stage.BUILD;
+        parts = List.of();
+        partIndex = 0;
         terrainBroken = 0;
         terrainPlaced = 0;
         stalls = 0;
         stallMark = -1;
+        tickErrors = 0;
         state = State.PREPARING;
-        StartBuildMod.LOGGER.info("[StartBuild] natural build of {} ({}x{}x{}, {} blocks) requested",
-                name, model.sizeX, model.sizeY, model.sizeZ, model.solidCount);
+        StartBuildMod.LOGGER.info("[StartBuild] natural build of {} ({}x{}x{}, {} blocks) at {} requested",
+                name, model.sizeX, model.sizeY, model.sizeZ, model.solidCount, corner.toShortString());
         StartBuildMod.chat("Preparing " + name + " (" + model.solidCount + " blocks)...");
         return 1;
+    }
+
+    private static String schematicFileName(String rawName) {
+        String name = rawName.trim();
+        return name.toLowerCase().matches(".*\\.(litematic|schem|schematic)$") ? name : name + ".litematic";
     }
 
     /**
@@ -210,48 +211,41 @@ final class NaturalSession {
     static int preview(String rawName) {
         Minecraft mc = Minecraft.getInstance();
         if (mc.player == null || mc.level == null) {
-            StartBuildMod.chat("\u00A7cJoin a world first.");
+            StartBuildMod.chat("§cJoin a world first.");
             return 0;
         }
         if (state != State.IDLE) {
-            StartBuildMod.chat("\u00A7eA build is running - the preview would show on camera. /stopbuild first.");
+            StartBuildMod.chat("§eA build is running - the preview would show on camera. /stopbuild first.");
             return 0;
         }
-        String name = rawName.trim();
-        if (!name.toLowerCase().matches(".*\\.(litematic|schem|schematic)$")) {
-            name = name + ".litematic";
-        }
+        String name = schematicFileName(rawName);
         File file = new File(new File(mc.gameDirectory, "schematics"), name);
         if (!file.isFile()) {
-            StartBuildMod.chat("\u00A7cNo such schematic: " + name);
+            StartBuildMod.chat("§cNo such schematic: " + name);
             return 0;
         }
         Object schematic = LitematicaBridge.loadSchematic(file.toPath().getParent(), name);
         SchematicModel m = SchematicModel.read(schematic);
         if (m == null) {
-            StartBuildMod.chat("\u00A7cCould not read " + name + ".");
+            StartBuildMod.chat("§cCould not read " + name + ".");
             return 0;
         }
         BlockPos corner = mc.player.blockPosition();
         int[] placed = LitematicaBridge.place(schematic, corner, "preview " + name, true);
         if (placed[0] <= 0) {
-            StartBuildMod.chat("\u00A7cLitematica could not show the preview.");
+            StartBuildMod.chat("§cLitematica could not show the preview.");
             return 0;
         }
         previewName = name;
         previewOrigin = corner;
 
-        // What is in the way: existing blocks inside the footprint that are not what the build wants there
-        // (trees, hills). The builder does not clear them, so they would end up in the video.
         int inTheWay = 0, below = 0;
         for (int y = 0; y < m.sizeY; y++) {
             for (int z = 0; z < m.sizeZ; z++) {
                 for (int x = 0; x < m.sizeX; x++) {
-                    BlockPos p = corner.offset(x, y, z);
-                    net.minecraft.world.level.block.state.BlockState have = mc.level.getBlockState(p);
+                    BlockState have = mc.level.getBlockState(corner.offset(x, y, z));
                     if (have.isAir() || have.canBeReplaced()) continue;
-                    net.minecraft.world.level.block.state.BlockState want = m.at(x, y, z);
-                    if (!NaturalBuilder.matches(have, want)) inTheWay++;
+                    if (!NaturalBuilder.matches(have, m.at(x, y, z))) inTheWay++;
                 }
             }
         }
@@ -262,13 +256,14 @@ final class NaturalSession {
         }
         StartBuildMod.chat("Preview: " + name + " " + m.sizeX + "x" + m.sizeY + "x" + m.sizeZ + " at "
                 + corner.toShortString() + " (east/south of you).");
-        StartBuildMod.chat((inTheWay == 0 ? "\u00A7aNothing in the way." : "\u00A7e" + inTheWay
-                + " existing block(s) inside the footprint would stay in the shot (trees/terrain).")
-                + (below > 0 ? " \u00A7e" + below + " cell(s) of the base hang over air." : ""));
-        StartBuildMod.chat("Move it: Litematica's nudge (hold the stick, Alt + scroll) or M > Placements > Configure. "
-                + "Then /startbuild confirm to build it where the ghost is, or /previewbuild off.");
+        StartBuildMod.chat((inTheWay == 0 ? "§aNothing in the way." : "§e" + inTheWay
+                + " existing block(s) inside the footprint - the character will clear them by hand.")
+                + (below > 0 ? " §e" + below + " cell(s) of the base hang over air - the character will fill them." : ""));
+        StartBuildMod.chat("/startbuild confirm to build it here, or /previewbuild off.");
         return 1;
     }
+
+    // ================================================================== site search
 
     private static List<PlacementFinder.Result> siteChoices = List.of();
     private static int siteIndex;
@@ -282,6 +277,18 @@ final class NaturalSession {
     private static CompletableFuture<Pair<BlockPos, Holder<Biome>>> biomeLookup;
     private static BlockPos exploreTarget;
     private static int exploreTicks;
+    /** Hands-free: confirm the site shown by itself, and search further away when nothing is found. */
+    private static boolean autoMode;
+    private static int autoAttempts;
+    private static int autoConfirmTicks;
+
+    private static void resetSiteSearch() {
+        if (biomeLookup != null) biomeLookup.cancel(false);
+        biomeLookup = null;
+        exploreTarget = null;
+        autoConfirmTicks = 0;
+        autoMode = false;
+    }
 
     /**
      * "/findsite <name> [wish]" - shows the most natural spot for the build as a ghost and flies the player
@@ -293,55 +300,68 @@ final class NaturalSession {
      *     not been used yet, and only offers sites inside it.
      * Sites already shown are never offered again.
      */
-    static int findSite(String rawName, String wishText) {
+    static int findSite(String rawName, String wishText, boolean auto) {
         Minecraft mc = Minecraft.getInstance();
-        if (mc.player == null || mc.level == null) {
-            StartBuildMod.chat("\u00A7cJoin a world first.");
+        if (mc.player == null || mc.level == null || mc.gameMode == null) {
+            StartBuildMod.chat("§cJoin a world first.");
             return 0;
         }
         if (state != State.IDLE) {
-            StartBuildMod.chat("\u00A7eA build is running. /stopbuild first.");
+            StartBuildMod.chat("§eA build is running. /stopbuild first.");
             return 0;
         }
-        String name = rawName.trim();
-        if (!name.toLowerCase().matches(".*\\.(litematic|schem|schematic)$")) name = name + ".litematic";
+        String name = schematicFileName(rawName);
         File file = new File(new File(mc.gameDirectory, "schematics"), name);
         if (!file.isFile()) {
-            StartBuildMod.chat("\u00A7cNo such schematic: " + name);
+            StartBuildMod.chat("§cNo such schematic: " + name);
             return 0;
         }
         SchematicModel m = SchematicModel.read(LitematicaBridge.loadSchematic(file.toPath().getParent(), name));
         if (m == null) {
-            StartBuildMod.chat("\u00A7cCould not read " + name + ".");
+            StartBuildMod.chat("§cCould not read " + name + ".");
             return 0;
         }
-        boolean repeat = name.equals(siteName);
+        resetSiteSearch();
+        boolean repeat = name.equals(siteName) && !auto;
         if (!repeat) {
             shownSites.clear();
             explorations = 0;
         }
+        autoMode = auto;
+        autoAttempts = 0;
         siteName = name;
         siteModel = m;
         siteWishText = wishText == null ? "" : wishText;
         siteChoices = List.of();
+        // Flying far needs creative (a survival player teleported to y=200 would fall).
+        if (mc.gameMode.getPlayerMode() != GameType.CREATIVE) {
+            StartBuildMod.runServerCommand("gamemode creative");
+        }
         if (!PlacementFinder.biomeWords(siteWishText).isEmpty()) return exploreBiome(mc);
         if (repeat) return exploreElsewhere(mc);
         return searchAround(mc, mc.player.blockPosition());
     }
 
     static int nextSite() {
-        if (siteChoices.isEmpty()) {
-            StartBuildMod.chat("\u00A7eRun /findsite <name> <wish> first.");
+        if (state != State.IDLE) {
+            StartBuildMod.chat("§eA build is running. /stopbuild first.");
             return 0;
         }
+        if (siteChoices.isEmpty()) {
+            StartBuildMod.chat("§eRun /findsite <name> <wish> first.");
+            return 0;
+        }
+        autoMode = false;
         if (siteIndex + 1 >= siteChoices.size()) {
             // Seen every choice here: go somewhere new rather than cycling back to the first one.
-            Minecraft mc = Minecraft.getInstance();
-            if (!PlacementFinder.biomeWords(siteWishText).isEmpty()) return exploreBiome(mc);
-            return exploreElsewhere(mc);
+            return exploreFurther(Minecraft.getInstance());
         }
         siteIndex++;
         return showSite();
+    }
+
+    private static int exploreFurther(Minecraft mc) {
+        return PlacementFinder.biomeWords(siteWishText).isEmpty() ? exploreElsewhere(mc) : exploreBiome(mc);
     }
 
     /** Next exploration point: 600-900 blocks away, each time in a new direction (golden-angle spiral). */
@@ -353,23 +373,31 @@ final class NaturalSession {
     }
 
     private static int exploreElsewhere(Minecraft mc) {
-        flyTo(mc, nextExplorePoint(mc.player.blockPosition()));
-        StartBuildMod.chat("Looking somewhere new, ~" + (int) Math.sqrt(mc.player.blockPosition().distSqr(exploreTarget))
+        BlockPos target = nextExplorePoint(mc.player.blockPosition());
+        StartBuildMod.chat("Looking somewhere new, ~" + (int) Math.sqrt(mc.player.blockPosition().distSqr(target))
                 + " blocks away - loading the area...");
+        flyTo(mc, target);
         return 1;
     }
 
     private static int exploreBiome(Minecraft mc) {
         IntegratedServer server = mc.getSingleplayerServer();
         if (server == null) {
-            StartBuildMod.chat("\u00A7cBiome search needs a singleplayer world.");
+            StartBuildMod.chat("§cBiome search needs a singleplayer world.");
+            autoMode = false;
             return 0;
         }
         List<String> words = PlacementFinder.biomeWords(siteWishText);
         // Start from the player, or - once this biome has been used - from a point far away, so the nearest
         // match is a different patch of it.
-        BlockPos from = shownSites.isEmpty() ? mc.player.blockPosition() : nextExplorePoint(mc.player.blockPosition());
+        BlockPos from = shownSites.isEmpty() && autoAttempts == 0 ? mc.player.blockPosition()
+                : nextExplorePoint(mc.player.blockPosition());
         ServerLevel level = server.getLevel(mc.level.dimension());
+        if (level == null) {
+            StartBuildMod.chat("§cBiome search: this dimension is not available.");
+            autoMode = false;
+            return 0;
+        }
         biomeLookup = server.submit(() -> level.findClosestBiome3d(h -> PlacementFinder.biomeMatches(h, words),
                 from, 3200, 32, 64));
         exploreTarget = null;
@@ -387,8 +415,16 @@ final class NaturalSession {
         StartBuildMod.runServerCommand("tp @s " + target.getX() + " 200 " + target.getZ());
     }
 
-    /** Called every idle tick: finishes a biome lookup, then waits for the new area's chunks and searches. */
-    private static void tickExplore(Minecraft mc) {
+    /** Idle ticks: finish a biome lookup, wait for a new area's chunks and search, auto-confirm. */
+    private static void tickSiteSearch(Minecraft mc) {
+        if (autoConfirmTicks > 0 && --autoConfirmTicks == 0) {
+            StartBuildMod.LOGGER.info("[StartBuild] hands-free: confirming site {}", previewOrigin);
+            autoMode = false;
+            if (confirmPreview() == 0) {
+                StartBuildMod.chat("§cHands-free take could not start (see the log).");
+            }
+            return;
+        }
         if (biomeLookup != null) {
             if (!biomeLookup.isDone()) return;
             Pair<BlockPos, Holder<Biome>> hit = null;
@@ -399,8 +435,9 @@ final class NaturalSession {
             }
             biomeLookup = null;
             if (hit == null) {
-                StartBuildMod.chat("\u00A7eNo " + String.join("/", PlacementFinder.biomeWords(siteWishText))
+                StartBuildMod.chat("§eNo " + String.join("/", PlacementFinder.biomeWords(siteWishText))
                         + " biome within 3200 blocks.");
+                autoRetry(mc);
                 return;
             }
             StartBuildMod.LOGGER.info("[StartBuild] findsite biome {} at {}",
@@ -412,6 +449,7 @@ final class NaturalSession {
         exploreTicks++;
         if (exploreTicks % 10 != 0) return;
         // Wait until the chunks the search needs have arrived (they are generated on the way), max 40 s.
+        // The corners of the square lie beyond render distance and never load, hence 85%, not 100%.
         int reach = searchRadius(mc, siteModel) + Math.max(siteModel.sizeX, siteModel.sizeZ);
         int missing = 0, total = 0;
         for (int cz = (exploreTarget.getZ() - reach) >> 4; cz <= (exploreTarget.getZ() + reach) >> 4; cz++) {
@@ -420,19 +458,33 @@ final class NaturalSession {
                 if (!PlacementFinder.loaded(mc.level, cx, cz)) missing++;
             }
         }
-        // At least 2 s after the teleport (the old area's chunks are still there right after it), then until
-        // 95% of the new area has arrived.
-        if ((exploreTicks < 40 || missing > total / 20) && exploreTicks < 800) return;
-        if (missing > total / 2) {
-            exploreTarget = null;
-            StartBuildMod.chat("§eThe area did not load in time. Run /findsite again.");
-            return;
-        }
+        if ((exploreTicks < 40 || missing > total * 15 / 100) && exploreTicks < 800) return;
         BlockPos centre = exploreTarget;
         exploreTarget = null;
+        if (missing > total / 2) {
+            StartBuildMod.chat("§eThe area did not load in time.");
+            autoRetry(mc);
+            return;
+        }
         StartBuildMod.LOGGER.info("[StartBuild] findsite area {} loaded ({} of {} chunks) after {} ticks",
                 centre, total - missing, total, exploreTicks);
         searchAround(mc, centre);
+    }
+
+    /** Hands-free: nothing usable here - try another area, up to config.autoSiteAttempts. */
+    private static void autoRetry(Minecraft mc) {
+        if (!autoMode) {
+            StartBuildMod.chat("Run /findsite again to look further away.");
+            return;
+        }
+        int max = StartBuildConfig.load().autoSiteAttempts;
+        if (++autoAttempts >= max) {
+            StartBuildMod.chat("§cHands-free take: no usable site found in " + max + " areas. Giving up.");
+            autoMode = false;
+            return;
+        }
+        StartBuildMod.LOGGER.info("[StartBuild] hands-free: no site here, trying another area ({}/{})", autoAttempts, max);
+        exploreFurther(mc);
     }
 
     private static int searchRadius(Minecraft mc, SchematicModel m) {
@@ -462,8 +514,8 @@ final class NaturalSession {
         StartBuildMod.LOGGER.info("[StartBuild] findsite {} wish={} biome={} centre={} radius={} -> {} site(s) in {} ms",
                 siteName, wish, biomes, centre, radius, found.size(), System.currentTimeMillis() - t0);
         if (found.isEmpty()) {
-            StartBuildMod.chat("\u00A7eNo good new spot here"
-                    + (wish == PlacementFinder.Wish.WATER ? " next to water" : "") + ". Run /findsite again to look further away.");
+            StartBuildMod.chat("§eNo good new spot here" + (wish == PlacementFinder.Wish.WATER ? " next to water" : "") + ".");
+            autoRetry(mc);
             return 0;
         }
         siteChoices = found;
@@ -477,7 +529,8 @@ final class NaturalSession {
         File file = new File(new File(mc.gameDirectory, "schematics"), siteName);
         Object schematic = LitematicaBridge.loadSchematic(file.toPath().getParent(), siteName);
         if (LitematicaBridge.place(schematic, r.origin(), "preview " + siteName, true)[0] <= 0) {
-            StartBuildMod.chat("\u00A7cLitematica could not show the site.");
+            StartBuildMod.chat("§cLitematica could not show the site.");
+            autoMode = false;
             return 0;
         }
         previewName = siteName;
@@ -491,11 +544,17 @@ final class NaturalSession {
                 r.overhang() == 0 && r.buried() == 0 ? "sits flush on the ground" : "ground unevenness " + (r.overhang() + r.buried()),
                 r.waterDist() < 40 ? ", water " + r.waterDist() + " blocks away" : "",
                 r.obstacles() > 0 ? ", ~" + r.obstacles() + " trees/rocks inside" : ""));
-        StartBuildMod.chat("/startbuild confirm to build here, /findsite next for another, or nudge it with Litematica first.");
+        if (autoMode) {
+            StartBuildMod.chat("Hands-free: starting here in 3 s.");
+            autoConfirmTicks = 60;
+        } else {
+            StartBuildMod.chat("/startbuild confirm to build here, /findsite next for another.");
+        }
         return 1;
     }
 
     static int clearPreview() {
+        if (state != State.IDLE) return 0;
         int n = LitematicaBridge.clearPlacements();
         previewName = null;
         previewOrigin = null;
@@ -506,7 +565,7 @@ final class NaturalSession {
     /** Builds the last preview exactly where it was shown, wherever the player is now. */
     static int confirmPreview() {
         if (previewName == null || previewOrigin == null) {
-            StartBuildMod.chat("\u00A7eNo preview yet. /previewbuild <name> first.");
+            StartBuildMod.chat("§eNo preview yet. /findsite or /previewbuild first.");
             return 0;
         }
         String name = previewName;
@@ -515,7 +574,7 @@ final class NaturalSession {
         // it returned the viewpoint the player was teleported to, 18 blocks up, so the build floated.)
         previewName = null;
         previewOrigin = null;
-        return start(name, at, false);     // start() clears the ghost so it never appears on camera
+        return start(name, at);     // start() clears the ghost so it never appears on camera
     }
 
     // ================================================================== ticking
@@ -524,36 +583,59 @@ final class NaturalSession {
         Minecraft mc = Minecraft.getInstance();
         if (mc.player == null || mc.level == null) {
             ticksInWorld = 0;
+            resetSiteSearch();
             if (state != State.IDLE) {
-                // Left the world mid-build: nothing to save any more.
+                // Left the world mid-take: Flashback ends its own recording with the world.
+                StartBuildMod.LOGGER.warn("[StartBuild] left the world during a take ({})", stageLabel());
                 state = State.IDLE;
+                restoreOptions(mc);
             }
             return;
         }
+        // Paused (menu open): nothing in the world moves, so nothing may be counted - the watchdog would
+        // otherwise take a long pause for a stall.
+        if (state != State.IDLE && mc.isPaused()) return;
+        try {
+            tickInner(mc);
+            tickErrors = 0;
+        } catch (Throwable t) {
+            // One bad tick must not crash the game and lose the recording; a persistent error ends the take.
+            tickErrors++;
+            StartBuildMod.LOGGER.error("[StartBuild] error during {} (tick error {} in a row)", stageLabel(), tickErrors, t);
+            if (tickErrors >= 40 && state != State.IDLE) {
+                tickErrors = 0;
+                if (state == State.BUILDING && building() && builder != null && builder.placed > 0) {
+                    finish(mc);
+                } else {
+                    abort("repeated errors (see the log)");
+                }
+            }
+        }
+    }
+
+    private static void tickInner(Minecraft mc) {
         ticksInWorld++;
+        if (state != State.IDLE && ticksInWorld % 20 == 0 && stopFileExists()) {
+            StartBuildMod.LOGGER.info("[StartBuild] stop file found - stopping");
+            deleteStopFile();
+            stop();
+            return;
+        }
         switch (state) {
             case IDLE -> {
-                tickExplore(mc);
+                tickSiteSearch(mc);
                 checkAutorun(mc);
             }
             case PREPARING -> tickPreparing(mc);
             case PRE_ROLL -> {
                 if (--waitTicks <= 0) {
-                    buildStartMillis = System.currentTimeMillis();
-                    lastPlaced = 0;
-                    idleTicks = 0;
-                    state = State.BUILDING;
-                    if (terraform != null && terraform.clear() != null) {
-                        stage = Stage.CLEAR;
-                        builder = new NaturalBuilder(terraform.clear(), terraform.clearOrigin(), config.ticksPerBlock, true);
-                    } else if (terraform != null && terraform.fill() != null) {
-                        stage = Stage.FILL;
-                        builder = new NaturalBuilder(terraform.fill(), terraform.fillOrigin(), config.ticksPerBlock);
-                    } else {
-                        stage = Stage.BUILD;
-                        builder = new NaturalBuilder(model, origin, config.ticksPerBlock);
+                    if (recordingByUs && !FlashbackBridge.isRecording()) {
+                        abort("Flashback did not start recording");
+                        return;
                     }
-                    StartBuildMod.LOGGER.info("[StartBuild] {} {} at {}", stage.label, schematicName, origin);
+                    buildStartMillis = System.currentTimeMillis();
+                    state = State.BUILDING;
+                    startStage();
                 }
             }
             case BUILDING -> tickBuilding(mc);
@@ -568,44 +650,34 @@ final class NaturalSession {
     private static void tickPreparing(Minecraft mc) {
         waitTicks++;
         ClientLevel level = mc.level;
-        if (origin.getY() == Integer.MIN_VALUE) {
-            // Fresh site: wait for its chunks, then sit the schematic on the ground surface.
-            if (!level.hasChunk(origin.getX() >> 4, origin.getZ() >> 4)) {
-                if (waitTicks > 400) {
-                    abort("the build site never loaded");
-                }
-                return;
+        // Wait for the chunks under the footprint (required) and the terraforming zone around it (wanted).
+        // ClientLevel.hasChunk is always true in 26.2, so real chunk data is checked.
+        int zone = Math.max(config.terraformRadius, Terraformer.MAX_RADIUS) + 2;
+        boolean footprint = true, all = true;
+        for (int cx = (origin.getX() - zone) >> 4; cx <= (origin.getX() + model.sizeX + zone) >> 4; cx++) {
+            for (int cz = (origin.getZ() - zone) >> 4; cz <= (origin.getZ() + model.sizeZ + zone) >> 4; cz++) {
+                if (PlacementFinder.loaded(level, cx, cz)) continue;
+                all = false;
+                int x0 = cx << 4, z0 = cz << 4;
+                if (x0 + 15 >= origin.getX() && x0 <= origin.getX() + model.sizeX
+                        && z0 + 15 >= origin.getZ() && z0 <= origin.getZ() + model.sizeZ) footprint = false;
             }
-            int ground = level.getHeight(Heightmap.Types.MOTION_BLOCKING_NO_LEAVES, origin.getX(), origin.getZ());
-            origin = new BlockPos(origin.getX(), ground, origin.getZ());
-            StartBuildMod.runServerCommand("tp @s " + (origin.getX() - 3 + 0.5) + " " + (origin.getY() + 2)
-                    + " " + (origin.getZ() - 3 + 0.5) + " -45 30");
-            waitTicks = 0;
+        }
+        if (!footprint) {
+            if (waitTicks > 600) abort("the build area did not load (render distance too small?)");
             return;
         }
-        // Wait for every chunk under the footprint, and a moment for the teleport to settle.
-        int x0 = origin.getX() >> 4, z0 = origin.getZ() >> 4;
-        int x1 = (origin.getX() + model.sizeX - 1) >> 4, z1 = (origin.getZ() + model.sizeZ - 1) >> 4;
-        for (int cx = x0; cx <= x1; cx++) {
-            for (int cz = z0; cz <= z1; cz++) {
-                if (!level.hasChunk(cx, cz)) {
-                    if (waitTicks > 600) {
-                        abort("the build area did not load (render distance too small?)");
-                    }
-                    return;
-                }
-            }
-        }
-        if (waitTicks < 40) {
+        if ((!all && waitTicks < 400) || waitTicks < 40) {
             return;
         }
         // Plan the terraforming now (read-only). The character does all of it by hand ON CAMERA once the
-        // recording runs: fell trees and dig the hillside down, build up dips, re-grass the banks, then build.
-        terraform = null;
+        // recording runs: fell trees, dig the hillside down, build up dips, re-grass the banks, then build.
+        parts = List.of();
         if (config.prepTerrain) {
             long t0 = System.currentTimeMillis();
-            terraform = Terraformer.plan(level, origin, model, config.terraformRadius);
-            StartBuildMod.LOGGER.info("[StartBuild] terraform plan: {} ({} ms)", terraform.describe(),
+            Terraformer.Plan plan = Terraformer.plan(level, origin, model, config.terraformRadius);
+            parts = plan.parts();
+            StartBuildMod.LOGGER.info("[StartBuild] terraform plan: {} ({} ms)", plan.describe(),
                     System.currentTimeMillis() - t0);
         }
         recordingByUs = false;
@@ -625,45 +697,49 @@ final class NaturalSession {
         }
         waitTicks = Math.max(20, config.preRollTicks());
         state = State.PRE_ROLL;
-        StartBuildMod.LOGGER.info("[StartBuild] recording={} building {} at {}", recordingByUs, schematicName, origin.toShortString());
+        StartBuildMod.LOGGER.info("[StartBuild] recording={} {} at {}", recordingByUs, schematicName, origin.toShortString());
+    }
+
+    private static void startStage() {
+        if (building()) {
+            builder = new NaturalBuilder(model, origin, config.ticksPerBlock);
+        } else {
+            Terraformer.Part p = parts.get(partIndex);
+            builder = new NaturalBuilder(p.model(), p.origin(), config.ticksPerBlock, p.clearing());
+        }
+        stalls = 0;
+        stallMark = -1;
+        StartBuildMod.LOGGER.info("[StartBuild] {} ({} of {}) {}", stageLabel(), Math.min(partIndex, parts.size()) + 1,
+                parts.size() + 1, schematicName);
     }
 
     private static void tickBuilding(Minecraft mc) {
         builder.tick();
         watchdog(mc);
 
-        // Mobs (superflat slimes especially) block placement and wander into shot; clear them quietly.
+        // Mobs block placement and wander into shot; clear them quietly.
         if (builder.ticks % 400 == 1) {
             StartBuildMod.runServerCommand("execute if entity @e[type=!minecraft:player,type=!minecraft:item,"
                     + "distance=..128] run kill @e[type=!minecraft:player,type=!minecraft:item,distance=..128]");
         }
 
-        // Progress report to the log once a minute (never to chat - it would be on camera).
         if (builder.ticks % 1200 == 0) {
-            StartBuildMod.LOGGER.info("[StartBuild] progress: {} {} placed, {} broken, {} left, layer {}, {} min{}",
-                    stage.label, builder.placed, builder.broken, builder.remaining(), builder.layer(),
-                    (System.currentTimeMillis() - buildStartMillis) / 60000,
+            // Progress to the log once a minute (never to chat - it would be on camera) + the safety limits.
+            long minutes = (System.currentTimeMillis() - buildStartMillis) / 60000;
+            StartBuildMod.LOGGER.info("[StartBuild] progress: {} - {} placed, {} broken, {} left, layer {}, {} min{}",
+                    stageLabel(), builder.placed, builder.broken, builder.remaining(), builder.layer(), minutes,
                     builder.lastProblem().isEmpty() ? "" : ", last problem: " + builder.lastProblem());
-        }
-
-        // Terraforming stages hand over to the next one when done: clear -> fill -> build.
-        if (stage != Stage.BUILD && builder.isFinished()) {
-            StartBuildMod.LOGGER.info("[StartBuild] {} done: {} broken, {} placed, {} left over, {} min",
-                    stage.label, builder.broken, builder.placed, builder.remaining(),
-                    (System.currentTimeMillis() - buildStartMillis) / 60000);
-            terrainBroken += builder.broken;
-            terrainPlaced += builder.placed;
-            stalls = 0;
-            stallMark = -1;
-            if (stage == Stage.CLEAR && terraform.fill() != null) {
-                stage = Stage.FILL;
-                builder = new NaturalBuilder(terraform.fill(), terraform.fillOrigin(), config.ticksPerBlock);
-            } else {
-                stage = Stage.BUILD;
-                builder = new NaturalBuilder(model, origin, config.ticksPerBlock);
+            double freeGb = new File(mc.gameDirectory.getAbsolutePath()).getUsableSpace() / 1e9;
+            if (freeGb < config.minFreeDiskGB) {
+                StartBuildMod.LOGGER.warn("[StartBuild] only {} GB free - stopping to protect the recording", freeGb);
+                finish(mc);
+                return;
             }
-            StartBuildMod.LOGGER.info("[StartBuild] {} {}", stage.label, schematicName);
-            return;
+            if (config.maxBuildMinutes > 0 && minutes >= config.maxBuildMinutes) {
+                StartBuildMod.LOGGER.warn("[StartBuild] {} min limit reached - stopping", config.maxBuildMinutes);
+                finish(mc);
+                return;
+            }
         }
 
         // Stop safely if the recording was ended behind our back.
@@ -674,9 +750,22 @@ final class NaturalSession {
             return;
         }
 
+        if (!building()) {
+            // Terraforming stages hand over to the next one when done: trees, clear, fill -> build.
+            if (builder.isFinished()) {
+                StartBuildMod.LOGGER.info("[StartBuild] {} done: {} broken, {} placed, {} left over, {} min",
+                        stageLabel(), builder.broken, builder.placed, builder.remaining(),
+                        (System.currentTimeMillis() - buildStartMillis) / 60000);
+                terrainBroken += builder.broken;
+                terrainPlaced += builder.placed;
+                partIndex++;
+                startStage();
+            }
+            return;
+        }
+
         if (builder.isFinished() && builder.placed == 0) {
-            abort("nothing could be placed at " + origin.toShortString()
-                    + " - the build has no ground to start from there. Try another spot.");
+            abort("nothing could be placed at " + origin.toShortString() + ". Try another spot.");
             return;
         }
         if (builder.isFinished()) {
@@ -689,8 +778,7 @@ final class NaturalSession {
             }
             waitTicks = config.stopDelayTicks();
             state = State.COOLDOWN;
-            StartBuildMod.LOGGER.info("[StartBuild] last block placed; recording continues {}s",
-                    config.stopDelaySeconds);
+            StartBuildMod.LOGGER.info("[StartBuild] last block placed; recording continues {}s", config.stopDelaySeconds);
         }
     }
 
@@ -705,7 +793,7 @@ final class NaturalSession {
      *   2nd time - also move the player to open air above the work (it may be shut in) and retry;
      *   3rd time - give up on what is left of this stage and carry on (the build stage then finishes and
      *              the take is saved), logging exactly what was left.
-     * Progress in between resets the count.
+     * Progress in between resets the count. Paused ticks are not counted (tick() returns early).
      */
     private static void watchdog(Minecraft mc) {
         if (builder.lastProgressTick > stallMark) {
@@ -713,7 +801,7 @@ final class NaturalSession {
         }
         if (builder.isFinished() || builder.ticks - builder.lastProgressTick < STALL_TICKS) return;
         stalls++;
-        String where = stage.label + ", " + builder.remaining() + " left, last problem: " + builder.lastProblem();
+        String where = stageLabel() + ", " + builder.remaining() + " left, last problem: " + builder.lastProblem();
         if (stalls == 1) {
             StartBuildMod.LOGGER.warn("[StartBuild] watchdog: no progress for 3 min ({}) - replanning", where);
             builder.recover();
@@ -726,7 +814,7 @@ final class NaturalSession {
         } else {
             StartBuildMod.LOGGER.warn("[StartBuild] watchdog: giving up on the rest of this stage ({})", where);
             builder.giveUp();
-            if (stage == Stage.BUILD) rechecks = 2;     // no final re-check loop on cells that cannot be done
+            if (building()) rechecks = 2;     // no final re-check loop on cells that cannot be done
         }
         stallMark = builder.lastProgressTick;
     }
@@ -735,54 +823,86 @@ final class NaturalSession {
         return mc.level.getBlockState(p).getCollisionShape(mc.level, p).isEmpty();
     }
 
+    // ================================================================== ending
+
+    /**
+     * Ends the take. A take in which the character placed nothing of the build (stopped during
+     * terraforming, or before anything happened) is DISCARDED - an empty take is never saved.
+     */
     private static void finish(Minecraft mc) {
-        int wrong = (builder != null && mc.level != null) ? builder.countWrong(mc.level) : -1;
-        long minutes = (System.currentTimeMillis() - buildStartMillis) / 60000;
+        boolean built = building() && builder != null;
+        long placed = built ? builder.placed : 0;
+        int wrong = (built && mc.level != null) ? builder.countWrong(mc.level) : -1;
+        long minutes = buildStartMillis == 0 ? 0 : (System.currentTimeMillis() - buildStartMillis) / 60000;
+        boolean keep = placed > 0;
+        boolean saved = false;
         if (recordingByUs && FlashbackBridge.isRecording()) {
-            if (config.addCompletionMarker) {
-                StartBuildMod.runClientCommand("flashback mark");
-            }
-            if (config.finishRecording) {
-                FlashbackBridge.finishRecording();
+            if (!keep) {
+                FlashbackBridge.cancelRecording();
+                StartBuildMod.LOGGER.info("[StartBuild] nothing of the build was placed - recording discarded");
+            } else {
+                if (config.addCompletionMarker) {
+                    StartBuildMod.runClientCommand("flashback mark");
+                }
+                if (config.finishRecording) {
+                    saved = FlashbackBridge.finishRecording();
+                }
             }
         }
         state = State.IDLE;
-        boolean built = stage == Stage.BUILD;
+        buildStartMillis = 0;
+        restoreOptions(mc);
         String summary = String.format("Done: %s - %d placed by the character, %d not matching, %d min"
                         + " (terraforming: %d broken, %d placed).",
-                schematicName, builder == null || !built ? 0 : builder.placed, built ? wrong : -1, minutes,
-                terrainBroken, terrainPlaced);
-        StartBuildMod.LOGGER.info("[StartBuild] {}", summary);
+                schematicName, placed, wrong, minutes, terrainBroken + (built ? 0 : builder == null ? 0 : builder.broken),
+                terrainPlaced);
+        StartBuildMod.LOGGER.info("[StartBuild] {}{}", summary, saved ? " Recording saved." : "");
         StartBuildMod.chat((wrong == 0 ? "§a" : "§e") + summary
-                + (recordingByUs ? " Recording saved." : ""));
-        if (config.desktopNotification) {
-            BaritoneBridge.notifyDesktop("StartBuild: " + summary);
+                + (saved ? " Recording saved." : keep ? "" : " Recording discarded (nothing built)."));
+        if (config.desktopNotification && saved) {
+            notifyDesktop("StartBuild: " + summary);
         }
         recordingByUs = false;
     }
 
+    /** Ends a take that failed: the recording is discarded, never saved. */
     private static void abort(String why) {
         StartBuildMod.chat("§cStopped: " + why);
         if (recordingByUs && FlashbackBridge.isRecording()) {
-            FlashbackBridge.finishRecording();
+            FlashbackBridge.cancelRecording();
+            StartBuildMod.LOGGER.info("[StartBuild] recording discarded");
         }
         recordingByUs = false;
         state = State.IDLE;
+        buildStartMillis = 0;
+        restoreOptions(Minecraft.getInstance());
     }
 
+    private static void restoreOptions(Minecraft mc) {
+        if (savedPauseOnLostFocus != null && mc != null && mc.options != null) {
+            mc.options.pauseOnLostFocus = savedPauseOnLostFocus;
+        }
+        savedPauseOnLostFocus = null;
+    }
+
+    /** /stopbuild (and the stop file): ends the take and saves it - or cancels a hands-free site search. */
     static int stop() {
         if (state == State.IDLE) {
+            if (autoMode || biomeLookup != null || exploreTarget != null || autoConfirmTicks > 0) {
+                resetSiteSearch();
+                StartBuildMod.chat("Site search stopped.");
+                return 1;
+            }
             return 0;
         }
-        Minecraft mc = Minecraft.getInstance();
         StartBuildMod.chat("Stopping.");
-        finish(mc);
+        finish(Minecraft.getInstance());
         return 1;
     }
 
     static void status() {
         if (state == State.IDLE) {
-            StartBuildMod.chat("natural builder: idle");
+            StartBuildMod.chat("natural builder: idle" + (autoMode ? " (hands-free site search running)" : ""));
             return;
         }
         if (builder == null) {
@@ -790,15 +910,36 @@ final class NaturalSession {
             return;
         }
         StartBuildMod.chat(String.format("natural builder: %s (%s) %s - %d placed, %d broken, %d left, layer %d%s",
-                state, stage.label, schematicName, builder.placed, builder.broken, builder.remaining(), builder.layer(),
+                state, stageLabel(), schematicName, builder.placed, builder.broken, builder.remaining(), builder.layer(),
                 builder.lastProblem().isEmpty() ? "" : " | last problem: " + builder.lastProblem()));
     }
 
-    // ================================================================== autorun (desktop icon)
+    // ================================================================== outside control
+
+    private static Path stopFile() {
+        String name = (config == null ? StartBuildConfig.load() : config).stopFileName;
+        return FabricLoader.getInstance().getConfigDir().resolve(name == null || name.isBlank() ? "startbuild-stop" : name);
+    }
+
+    private static boolean stopFileExists() {
+        try {
+            return Files.exists(stopFile());
+        } catch (Throwable t) {
+            return false;
+        }
+    }
+
+    private static void deleteStopFile() {
+        try {
+            Files.deleteIfExists(stopFile());
+        } catch (Throwable t) {
+            StartBuildMod.LOGGER.warn("[StartBuild] could not delete the stop file: {}", Reflect.describe(t));
+        }
+    }
 
     /**
-     * The desktop launcher writes config/startbuild-autorun (containing the schematic name). As soon as a
-     * world is loaded and has settled, the build starts by itself - no typing.
+     * The desktop launcher writes config/startbuild-autorun ("name [wish]"). As soon as a world is loaded
+     * and has settled, the hands-free take starts by itself - no typing.
      */
     private static void checkAutorun(Minecraft mc) {
         if (++autorunCheck < 20) {
@@ -814,12 +955,35 @@ final class NaturalSession {
             if (ticksInWorld < (int) (cfg.autoRunDelaySeconds * 20)) {
                 return;
             }
-            String name = Files.readString(flag).trim();
+            String text = Files.readString(flag).trim();
             Files.deleteIfExists(flag);
-            StartBuildMod.LOGGER.info("[StartBuild] autorun flag found: '{}'", name);
-            startAuto(name.isEmpty() ? cfg.autoRunSchematic : name);
+            StartBuildMod.LOGGER.info("[StartBuild] autorun flag found: '{}'", text);
+            startAuto(text);
         } catch (Throwable t) {
             StartBuildMod.LOGGER.warn("[StartBuild] autorun check failed: {}", Reflect.describe(t));
         }
+    }
+
+    /** A Windows/desktop tray notification, off the game thread; silently skipped where unsupported. */
+    private static void notifyDesktop(String text) {
+        Thread t = new Thread(() -> {
+            try {
+                if (java.awt.GraphicsEnvironment.isHeadless() || !java.awt.SystemTray.isSupported()) {
+                    StartBuildMod.LOGGER.info("[StartBuild] desktop notifications are not available here");
+                    return;
+                }
+                java.awt.SystemTray tray = java.awt.SystemTray.getSystemTray();
+                java.awt.image.BufferedImage img = new java.awt.image.BufferedImage(16, 16, java.awt.image.BufferedImage.TYPE_INT_ARGB);
+                java.awt.TrayIcon icon = new java.awt.TrayIcon(img, "StartBuild");
+                tray.add(icon);
+                icon.displayMessage("StartBuild", text, java.awt.TrayIcon.MessageType.INFO);
+                Thread.sleep(10_000);
+                tray.remove(icon);
+            } catch (Throwable e) {
+                StartBuildMod.LOGGER.info("[StartBuild] desktop notification failed: {}", Reflect.describe(e));
+            }
+        }, "startbuild-notify");
+        t.setDaemon(true);
+        t.start();
     }
 }

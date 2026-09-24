@@ -4,24 +4,21 @@
     One double-click: makes sure the build-recording Prism instance exists with the right mod set,
     then launches that instance through the Prism command line.
 
-    Mod set it guarantees:
-        Fabric API, Flashback, MaLiLib, Litematica, Baritone (api-fabric build), StartBuild
+    Mod set it guarantees (Minecraft 26.2, Fabric Loader 0.19.5):
+        Fabric API, Flashback, MaLiLib, Litematica, Sodium, Iris, StartBuild
     Also guarantees:
         - a hash-verified shader pack in the instance's shaderpacks\ folder (Iris does the selecting;
           see the README for when shaders should be on)
-        - the stock datapacks inside the most recently used world
     Version policy:
         - Fabric API and Flashback are only installed if the instance has none; an existing
-          version is left alone (Graham's other instances pin Flashback 0.42.1 / Fabric API
-          0.156.0 and StartBuild's Flashback API checks pass against 0.42.1).
-        - The other four are pinned and replaced if a different version is present, because a
-          mismatched pair (e.g. two Litematica jars, or the obfuscated standalone Baritone)
-          silently breaks the build.
+          version is left alone.
+        - The others are pinned and replaced if a different version is present, because a
+          mismatched pair (e.g. two Litematica jars) silently breaks the build.
+        - Baritone is no longer used (2.x places every block itself). An existing Baritone jar is
+          left where it is; it is simply not required or installed any more.
 
     Safety rules:
-        - Never deletes anything. Superseded jars go to mods\_superseded-<timestamp>\.
-        - Baritone must be the "api-fabric" jar: the standalone jar is ProGuard-obfuscated and
-          does not expose baritone.api.* by name, which would break StartBuild's reflection.
+        - Never deletes a mod. Superseded jars of the mods above go to mods\_superseded-<timestamp>\.
         - Downloads are cached and hash-verified, so re-runs are fast and offline-safe.
 
     Usage:
@@ -30,19 +27,21 @@
         startbuild-launch.ps1 -Instance OtherName
         startbuild-launch.ps1 -Force                 # re-copy everything from cache
         startbuild-launch.ps1 -Shaders On            # also make Iris load the shader pack
-        startbuild-launch.ps1 -NoDatapacks -NoShaderpack   # mods only
+        startbuild-launch.ps1 -NoShaderpack          # mods only
+        startbuild-launch.ps1 -Build haunted_80 -Wish 'near a lake'
+                                                     # hands-free: open -World, find a site, build, save
 #>
 [CmdletBinding()]
 param(
     [string] $Instance = 'BuildRecording',
     [switch] $NoLaunch,
     [switch] $Force,
-    [switch] $NoDatapacks,
     [switch] $NoShaderpack,
     [ValidateSet('Keep', 'On', 'Off')] [string] $Shaders = 'Keep',
     # One double-click = open the world and build this schematic by itself, recorded by Flashback.
     [string] $Build = '',   # set (e.g. -Build haunted_80) to open the world and build hands-free
-    [string] $World = 'New World (1)',
+    [string] $Wish = '',    # optional site wish for -Build (e.g. 'near a lake'), written after the name
+    [string] $World = 'Video Building',
     [switch] $NoAutoBuild
 )
 
@@ -54,14 +53,17 @@ $CacheDir  = Join-Path $env:LOCALAPPDATA 'StartBuildCache\mods'
 $LogFile   = Join-Path (Split-Path $CacheDir -Parent) 'launcher-log.txt'
 
 $RepoRoot  = Split-Path $PSScriptRoot -Parent
-$BuildDir  = Join-Path $RepoRoot 'staging\flashback-startbuild-20260922\build\libs'
+# This script runs both from this repo (Build-Automation-Tool\tools) and from the desktop-icon copy
+# (MineSurvive\tools); both repos sit side by side under the same Codex folder.
+$CodexRoot    = Split-Path $RepoRoot -Parent
+$RepoBuildDir = Join-Path $CodexRoot 'Build-Automation-Tool\build\libs'
+$BuildDir     = Join-Path $CodexRoot 'MineSurvive\staging\flashback-startbuild-20260922\build\libs'
 # Discover the highest-versioned build output instead of pinning a filename and hash here, so
 # rebuilding the mod never requires editing this script. The version comes from the file name and
 # deliberately beats LastWriteTime: an older jar touched later (re-downloaded, copied, restored from a
 # backup) would otherwise silently count as the "newest" and get installed instead.
-# Claude Code builds in the repo itself; the old staging copy is still honoured. Highest version wins.
-$RepoBuildDir = Join-Path (Split-Path $RepoRoot -Parent) 'Build-Automation-Tool\build\libs'
-$BuildCandidates = Get-ChildItem @($BuildDir, $RepoBuildDir) -Filter 'startbuild-*.jar' -ErrorAction SilentlyContinue | ForEach-Object {
+# The repo build is the normal source; the old staging copy is still honoured. Highest version wins.
+$BuildCandidates = Get-ChildItem @($RepoBuildDir, $BuildDir) -Filter 'startbuild-*.jar' -ErrorAction SilentlyContinue | ForEach-Object {
     $v = [version]'0.0.0'
     if ($_.Name -match '^startbuild-(\d+\.\d+\.\d+)\.jar$') { $v = [version]$Matches[1] }
     [pscustomobject]@{ File = $_; Version = $v }
@@ -146,17 +148,6 @@ $Mods = @(
         Why     = 'holds the schematic the build follows'
     }
     [pscustomobject]@{
-        Label   = 'Baritone'
-        Policy  = 'Pinned'
-        Pattern = 'baritone-*.jar'
-        File    = 'baritone-api-fabric-1.19.0.jar'
-        Url     = 'https://github.com/cabaletta/baritone/releases/download/v1.19.0/baritone-api-fabric-1.19.0.jar'
-        Algo    = 'SHA1'
-        Hash    = 'c415031f0a292f52daa3ae55e86f720e12b3552b'
-        Bytes   = 4820825
-        Why     = 'does the building (api-fabric build, NOT standalone)'
-    }
-    [pscustomobject]@{
         Label   = 'StartBuild'
         Policy  = 'Pinned'
         Pattern = 'startbuild-*.jar'
@@ -165,7 +156,7 @@ $Mods = @(
         Algo    = 'SHA256'
         Hash    = $BuiltSha
         Bytes   = $BuiltSize
-        Why     = 'the /startbuild command itself'
+        Why     = 'the builder itself (/findsite, /startbuild)'
     }
 )
 
@@ -298,9 +289,9 @@ function New-PrismInstance {
                     "uid": "net.fabricmc.intermediary"
                 }
             ],
-            "cachedVersion": "0.19.3",
+            "cachedVersion": "0.19.5",
             "uid": "net.fabricmc.fabric-loader",
-            "version": "0.19.3"
+            "version": "0.19.5"
         }
     ],
     "formatVersion": 1
@@ -370,7 +361,7 @@ Write-Step "Checking instance '$Instance'"
 
 $InstanceDir = Join-Path (Join-Path $PrismRoot 'instances') $Instance
 if (-not (Test-Path $InstanceDir)) {
-    Write-Note "instance '$Instance' does not exist yet - creating it (Minecraft 26.2 + Fabric Loader 0.19.3)"
+    Write-Note "instance '$Instance' does not exist yet - creating it (Minecraft 26.2 + Fabric Loader 0.19.5)"
     New-PrismInstance -InstanceDirPath $InstanceDir -DisplayName $Instance
     if (-not (Test-Path (Join-Path $InstanceDir 'instance.cfg'))) {
         Write-Bad 'could not create the instance'
@@ -426,9 +417,6 @@ foreach ($mod in $Mods) {
     # Any other jar for this mod would clash with the one we are about to install.
     foreach ($other in ($matching | Where-Object { $_.Name -ne $mod.File })) {
         Move-Aside -Path $other.FullName -IntoDir $supersededDir -Collector $superseded
-        if ($mod.Label -eq 'Baritone') {
-            Write-Note 'the standalone Baritone jar is obfuscated and would break StartBuild; api-fabric is required'
-        }
     }
     if ((-not $Force) -and (Test-Path $target) -and -not (Test-Hash -Path $target -Algorithm $mod.Algo -Expected $mod.Hash)) {
         Move-Aside -Path $target -IntoDir $supersededDir -Collector $superseded
@@ -436,8 +424,10 @@ foreach ($mod in $Mods) {
 
     if ($mod.Label -eq 'StartBuild') {
         if (-not $BuiltJar) {
-            Write-Bad "no build output found in $BuildDir"
-            Write-Host '   Rebuild it:  gradle build   (see the README)'
+            Write-Bad 'no startbuild-*.jar build output found in either build folder:'
+            Write-Host "   $RepoBuildDir"
+            Write-Host "   $BuildDir"
+            Write-Host '   Build it from the Build-Automation-Tool repo:  .\gradlew.bat build'
             exit 1
         }
         Copy-Item -Path $BuiltJar.FullName -Destination $target -Force
@@ -480,43 +470,7 @@ if ($BuildCandidates.Count -gt 1) {
     Write-Note ("other build outputs ignored: {0}" -f ($skipped -join ', '))
 }
 
-# ---------------------------------------------------------------- 3b. stock datapacks
-# Datapacks live inside each world, so a new world needs them copied in again. This refreshes them
-# into the most recently used world. Additive and idempotent - it only overwrites its own pack
-# folders and never deletes anything. Skip with -NoDatapacks.
-if (-not $NoDatapacks) {
-    Write-Step 'Refreshing stock datapacks'
-
-    $stockRoot = Join-Path ([Environment]::GetFolderPath('Desktop')) 'litematic\_stock'
-    $stockPacks = @()
-    if (Test-Path $stockRoot) {
-        $stockPacks = @(Get-ChildItem $stockRoot -Directory -ErrorAction SilentlyContinue |
-                        Where-Object { Test-Path (Join-Path $_.FullName 'pack.mcmeta') })
-    }
-
-    if (-not $stockPacks.Count) {
-        Write-Note "no stock datapacks generated yet (looked in $stockRoot)"
-    } else {
-        $newestWorld = Get-ChildItem (Join-Path $GameDir 'saves') -Directory -ErrorAction SilentlyContinue |
-                       Where-Object { Test-Path (Join-Path $_.FullName 'level.dat') } |
-                       Sort-Object LastWriteTime -Descending | Select-Object -First 1
-        if (-not $newestWorld) {
-            Write-Note 'no usable world yet - create one in game, then run this again'
-        } else {
-            $dpDir = Join-Path $newestWorld.FullName 'datapacks'
-            New-Item -ItemType Directory -Force -Path $dpDir | Out-Null
-            foreach ($pack in $stockPacks) {
-                Copy-Item $pack.FullName -Destination $dpDir -Recurse -Force
-            }
-            Write-Ok ("world '{0}': {1}" -f $newestWorld.Name, (($stockPacks | ForEach-Object { $_.Name }) -join ', '))
-            if (Get-Process javaw -ErrorAction SilentlyContinue) {
-                Write-Note 'game is running - run /reload in that world to pick them up'
-            }
-        }
-    }
-}
-
-# ---------------------------------------------------------------- 3c. shader pack
+# ---------------------------------------------------------------- 3b. shader pack
 # The shader pack is what makes the exported video look like a real build. Iris reads shaderpacks\
 # from the instance and owns config\iris.properties, so this step only guarantees the zip is present
 # and hash-correct, then reports (or optionally sets) which pack Iris loads at startup. Skip with
@@ -566,21 +520,29 @@ if (-not $NoShaderpack) {
     }
 }
 
-# ---------------------------------------------------------------- 3b. hands-free build
-# The mod watches for config\startbuild-autorun. Once a world has loaded it deletes the file, walks to a
-# fresh patch of ground, starts Flashback and builds the schematic named inside it - no typing at all.
+# ---------------------------------------------------------------- 3c. hands-free build
+# The mod watches for config\startbuild-autorun. Once a world has loaded it deletes the file, finds a
+# site (matching the optional wish words after the name), terraforms it by hand, starts Flashback and
+# builds the schematic - no typing at all. File content: "<name>" or "<name> <wish words>".
 $gameRunning = [bool](Get-Process javaw -ErrorAction SilentlyContinue)
-if (-not $NoAutoBuild -and $Build) {
+$autoBuild = (-not $NoAutoBuild) -and [bool]$Build
+if ($autoBuild) {
     $flag = Join-Path $GameDir 'config\startbuild-autorun'
+    $autorunText = $Build.Trim()
+    if ($Wish.Trim()) { $autorunText = $autorunText + ' ' + $Wish.Trim() }
     New-Item -ItemType Directory -Force -Path (Split-Path $flag -Parent) | Out-Null
-    Set-Content -Path $flag -Value $Build -NoNewline -Encoding ASCII
-    Write-Ok "auto-build armed: $Build (starts by itself once the world is loaded)"
+    Set-Content -Path $flag -Value $autorunText -NoNewline -Encoding ASCII
+    Write-Ok "auto-build armed: $autorunText (starts by itself once the world is loaded)"
 }
 
 # ---------------------------------------------------------------- 4. launch
 if ($gameRunning -and -not $NoLaunch) {
     Write-Step 'Minecraft is already running'
-    Write-Note 'the build starts in the open world within a few seconds (close the game first if you want the mod updated)'
+    if ($autoBuild) {
+        Write-Note 'the build starts in the open world within a few seconds (close the game first if you want the mod updated)'
+    } else {
+        Write-Note 'nothing launched; close the game first if you want the mod updated'
+    }
     Start-Sleep -Seconds 4
     exit 0
 }
@@ -590,11 +552,11 @@ if ($NoLaunch) {
 }
 
 Write-Step "Launching '$Instance'"
-Write-Host '   In game: stand where you want the build corner, then  /startbuild place <name>' -ForegroundColor White
-Write-Host '   Manual: /startbuild auto <name>  (fresh site)   /startbuild place <name>  (here)   /stopbuild'
+Write-Host '   In game: /findsite <name> [wish]  then  /startbuild confirm   (finds a site, terraforms, builds)' -ForegroundColor White
+Write-Host '   Or: /startbuild place <name>  (build where you stand)    /stopbuild  (stop and save the take)'
 Write-Log "launch instance=$Instance"
 $launchArgs = @('-l', $Instance)
-if (-not $NoAutoBuild -and $Build -and $World) {
+if ($autoBuild -and $World) {
     # Prism quick-play: straight into the world, no menus to click.
     $launchArgs += @('-w', ('"' + $World + '"'))
 }

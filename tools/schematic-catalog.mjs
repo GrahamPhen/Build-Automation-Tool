@@ -7,13 +7,12 @@
  * a sortable catalog you can choose builds from. Optionally stages a shortlist into your
  * Litematica schematics folder.
  *
- * Why the format version matters for this workflow:
- *   Baritone's own  "#build <file>"  only parses:
- *     .litematic  format version 7 (Minecraft 1.21+)  - v4/v5/v6 are rejected as "too old"
- *     .schem      Sponge version 1 or 2               - v3 is not supported
+ * Format versions ("current format" column):
+ *     .litematic  format version 7 (Minecraft 1.21+)  - v4/v5/v6 are older formats
+ *     .schem      Sponge version 1 or 2               - v3 is flagged
  *     .schematic  MCEdit, any
- *   Everything else still works through the Litematica PLACEMENT path (/startbuild builds the
- *   placement and Litematica does its own version handling). This tool tells you which is which.
+ *   /startbuild loads every file through Litematica, which does its own version handling, so an
+ *   older format is informational only. This tool tells you which is which.
  *
  * Runtime: Node.js (no dependencies). Python is not installed on this machine.
  *
@@ -23,9 +22,9 @@
  *   --out DIR            where to write the catalog   (default: <folder>/_catalog)
  *   --stage DIR          copy a shortlist into DIR    (e.g. your schematics folder)
  *   --top N              with --stage: only the N biggest by block count
- *   --only-buildable     with --stage: only files Baritone "#build" accepts FROM DISK. You do not
- *                        need this for the /startbuild workflow - that builds a Litematica
- *                        placement, so every format and version works
+ *   --only-buildable     with --stage: only files in the current format versions above. You do
+ *                        not need this for the /startbuild workflow - Litematica loads every
+ *                        format and version
  *   --no-count-blocks    metadata only, fastest on huge libraries
  *   --count-all          count blocks even in very large schematics (slower)
  *   --jobs N             parallel workers             (default: CPU count)
@@ -299,10 +298,10 @@ function analyseLitematic(root, doCount, decodeLimit) {
   if (version === 7) buildable = true;
   else if ([4, 5, 6].includes(version)) {
     buildable = false;
-    note = `litematic v${version} - Baritone calls this "too old"; use the Litematica placement path`;
+    note = `litematic v${version} - older format; Litematica converts it when loaded`;
   } else {
     buildable = false;
-    note = `litematic v${version} - Baritone does not support this version`;
+    note = `litematic v${version} - unrecognised format version; check it loads in Litematica`;
   }
 
   // Free self-check: Litematica/tool-written files carry their own TotalBlocks. When we decoded the
@@ -401,7 +400,7 @@ function analyseSchem(root, doCount, decodeLimit) {
   if (version === 1 || version === 2) buildable = true;
   else {
     buildable = false;
-    note = `Sponge v${version} - Baritone only parses Sponge v1/v2`;
+    note = `Sponge v${version} - newer than Sponge v1/v2; check it loads in Litematica`;
   }
 
   return {
@@ -693,9 +692,9 @@ function writeCatalog(rows, outDir) {
     `${dupes.length} duplicate group(s), ${twins.length} same-build group(s), ` +
     `${contentGroups.length} same-content group(s).`, '');
   md.push('"Blocks" is the real non-air block count - a decent proxy for how much work each build is.');
-  md.push('"Baritone #build" = can be fed straight to Baritone from the file; where it says no, load and');
-  md.push('place the schematic in Litematica and use `/startbuild` instead.', '');
-  md.push('| # | Blocks | Size (x,y,z) | Name | Author | Format | Baritone #build | File |');
+  md.push('"Current format" = newest schematic format version for its type; "no" is informational only,');
+  md.push('since Litematica (and so `/startbuild`) loads older versions too.', '');
+  md.push('| # | Blocks | Size (x,y,z) | Name | Author | Format | Current format | File |');
   md.push('|---|--------|--------------|------|--------|--------|-----------------|------|');
   ranked.forEach((r, i) => {
     md.push(`| ${i + 1} | ${blocksLabel(r)} | ${r.size_x}x${r.size_y}x${r.size_z} | ${r.label} | ` +
@@ -988,7 +987,7 @@ function writeStock(file, outRoot, mode, batchSize) {
     ...entries.map(([name, count]) => `${String(count).padStart(9)}  ${name}`)
   ];
   if (skipped.length) {
-    materialLines.push('', 'not obtainable as an item (Baritone will pause on these; consider buildSubstitutes or buildIgnoreBlocks):',
+    materialLines.push('', 'not obtainable as an item (cannot be placed by hand):',
       ...skipped.map(([name, count]) => `${String(count).padStart(9)}  ${name}`));
   }
   fs.writeFileSync(path.join(packDir, 'materials.txt'), materialLines.join('\n') + '\n');
@@ -1427,7 +1426,7 @@ async function main(argv) {
     }
     console.log(`     /function ${result.ns}:${result.label}_clear    <- resets your inventory`);
     console.log('');
-    console.log('Run batch 1, and the next batch whenever Baritone pauses for materials.');
+    console.log('Run batch 1, and the next batch when the inventory runs out of materials.');
     console.log(`Material list: ${path.join(result.packDir, 'materials.txt')}`);
     return 0;
   }
@@ -1552,7 +1551,7 @@ async function main(argv) {
   console.log('='.repeat(70));
   console.log(`${rows.length} file(s), ${humanBytes(totalBytes)} total`);
   console.log(`${ranked.length} readable, ${bad.length} unreadable`);
-  console.log(`${exact.length} block counts decoded exactly, ${reported.length} taken from file metadata, ${buildable.length} ready for Baritone #build`);
+  console.log(`${exact.length} block counts decoded exactly, ${reported.length} taken from file metadata, ${buildable.length} in the current format version`);
   const checked = ranked.filter((r) => r.count_check);
   const disagree = checked.filter((r) => r.count_check !== 'matches metadata');
   if (checked.length) {

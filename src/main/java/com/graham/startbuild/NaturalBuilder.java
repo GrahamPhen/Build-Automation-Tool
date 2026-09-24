@@ -31,7 +31,9 @@ import net.minecraft.world.level.block.state.properties.BlockStateProperties;
 import net.minecraft.world.level.block.state.properties.DoubleBlockHalf;
 import net.minecraft.world.level.block.state.properties.Property;
 import net.minecraft.world.phys.AABB;
+import net.minecraft.world.level.ClipContext;
 import net.minecraft.world.phys.BlockHitResult;
+import net.minecraft.world.phys.HitResult;
 import net.minecraft.world.phys.Vec3;
 
 import java.util.ArrayDeque;
@@ -48,7 +50,7 @@ import java.util.Set;
  * the block appears. Every block is a real use-item-on click sent by the player, so on a Flashback
  * recording it looks like a hand build. Nothing is /setblock'd and no printer is involved.
  *
- * Why this replaced Baritone's builder (measured, see PROBLEM.md): Baritone gives a floating cell a goal
+ * Why this replaced Baritone's builder (measured, see docs/PROBLEM-baritone-era.md): Baritone gives a floating cell a goal
  * in mid-air ("stand on top of it") and walks at it for ever; it only makes goals for block types on the
  * hotbar; and it can only match an item's upward-click state, so axis=x logs were either never placed or
  * placed with the wrong grain. This builder instead:
@@ -94,6 +96,9 @@ final class NaturalBuilder {
     private final Map<BlockPos, Long> scaffoldRetryAt = new HashMap<>();
     /** Set by fly() when the player is blocked mid-route: MOVE plans the route again. */
     private boolean replan;
+    private int scaffoldCleanups;
+    /** Per cell: do not try to plan it again before this tick (it just failed to plan). */
+    private final int[] retryAfter;
 
     private Action current;
     private Phase phase = Phase.PLAN;
@@ -122,6 +127,7 @@ final class NaturalBuilder {
         final BlockState want;          // what should be there after a PLACE (null for scaffold)
         final boolean scaffold;
         boolean dig;                    // BREAK made only to get out of an enclosed space
+        int forCell = -1;               // scaffold steps: the stuck cell the sequence is for
         BlockPos against;               // PLACE: the block we click; BREAK: == target
         Direction face;                 // face of `against` we click
         Vec3 hit;                       // where on that face
@@ -152,6 +158,7 @@ final class NaturalBuilder {
         this.clearing = clearing;
         this.ticksPerBlock = Math.max(1, ticksPerBlock);
         this.status = new byte[model.states.length];
+        this.retryAfter = new int[model.states.length];
         for (int i = 0; i < status.length; i++) {
             BlockState s = model.states[i];
             if (s != null && (clearing ? s.isAir() : !s.isAir() && !isSecondaryPart(s))) {
@@ -178,12 +185,6 @@ final class NaturalBuilder {
 
     int layer() {
         return layer;
-    }
-
-    int impossibleCount() {
-        int n = 0;
-        for (byte b : status) if (b == 4) n++;
-        return n;
     }
 
     String lastProblem() {
@@ -215,11 +216,7 @@ final class NaturalBuilder {
                 }
                 current = nextAction(mc, player, level);
                 if (current == null) {
-                    if (finished) {
-                        stop(player);
-                    } else {
-                        hover(player);
-                    }
+                    hover(player);
                     return;
                 }
                 if (!routeTo(mc, player, level)) {
@@ -352,6 +349,15 @@ final class NaturalBuilder {
             layer = 0;
             return nextAction(mc, player, level);
         }
+        // No temporary block may be left in the finished take: retry any that were set aside.
+        scaffolds.removeIf(s -> level.getBlockState(s).isAir());
+        if (!scaffolds.isEmpty() && scaffoldCleanups++ < 5) {
+            scaffoldRetryAt.clear();
+            return null;                    // hover a tick; step 2 above picks them up next time
+        }
+        if (!scaffolds.isEmpty()) {
+            StartBuildMod.LOGGER.warn("[StartBuild] {} temporary block(s) could not be removed: {}", scaffolds.size(), scaffolds);
+        }
         finished = true;
         return null;
     }
@@ -385,8 +391,28 @@ final class NaturalBuilder {
         return any;
     }
 
-    /** Nearest actionable cell in layers [fromY, toY], judged from where the player is now. */
+    /**
+     * Nearest actionable cell in layers [fromY, toY], judged from where the player is now. Cells that just
+     * failed to plan are skipped for a few seconds (re-solving them every tick froze the game on big
+     * layers) - but when nothing else is left they get one full retry before the layer counts as stuck.
+     */
     private Action bestInLayers(Minecraft mc, LocalPlayer player, ClientLevel level, int fromY, int toY) {
+        skippedForRetry = 0;
+        Action a = scanLayers(mc, player, level, fromY, toY);
+        if (a == null && skippedForRetry > 0) {
+            for (int y = fromY; y <= toY; y++) {
+                for (int z = 0; z < model.sizeZ; z++) {
+                    for (int x = 0; x < model.sizeX; x++) retryAfter[model.index(x, y, z)] = 0;
+                }
+            }
+            a = scanLayers(mc, player, level, fromY, toY);
+        }
+        return a;
+    }
+
+    private int skippedForRetry;
+
+    private Action scanLayers(Minecraft mc, LocalPlayer player, ClientLevel level, int fromY, int toY) {
         Vec3 eye = player.getEyePosition();
         // Cheap pass: candidates sorted by distance; the expensive click-solving runs lazily in that order.
         List<long[]> cands = new ArrayList<>();
@@ -395,6 +421,10 @@ final class NaturalBuilder {
                 for (int x = 0; x < model.sizeX; x++) {
                     int i = model.index(x, y, z);
                     if (status[i] != 1) continue;
+                    if (retryAfter[i] > ticks) {
+                        skippedForRetry++;
+                        continue;
+                    }
                     BlockPos p = world(x, y, z);
                     BlockState have = level.getBlockState(p);
                     BlockState want = model.states[i];
@@ -422,7 +452,7 @@ final class NaturalBuilder {
         cands.sort((a, b) -> Long.compare(a[0], b[0]));
         int tried = 0;
         for (long[] c : cands) {
-            if (++tried > 400) break;         // bound the work per decision; the rest waits its turn
+            if (++tried > 120) break;         // bound the work per decision; the rest waits its turn
             int i = (int) c[1];
             int y = i / (model.sizeX * model.sizeZ);
             int rem = i % (model.sizeX * model.sizeZ);
@@ -445,6 +475,8 @@ final class NaturalBuilder {
             if (prepare(mc, player, level, a)) {
                 return a;
             }
+            // Could not be planned from here: skip it for 5 s instead of re-solving it every tick.
+            retryAfter[i] = (int) ticks + 100;
         }
         return null;
     }
@@ -483,17 +515,20 @@ final class NaturalBuilder {
                 if (chain == null) continue;
                 // Would clicking n's face (towards t) give the exact state we want? Check it now, with the
                 // chain treated as solid, so we never build a scaffold that cannot help.
-                if (!clickWouldWork(player, level, t, n, d.getOpposite(), want)) continue;
+                if (!axisOk(d.getOpposite(), want)) continue;
 
                 Item scaffoldItem = scaffoldItemFor(want);
                 for (BlockPos c : chain) {
                     Action a = new Action(Kind.PLACE, c, null, true);
                     a.item = scaffoldItem;
+                    a.forCell = i;
                     queue.addLast(a);
                 }
                 queue.addLast(new Action(Kind.PLACE, t, want, false));
                 for (int k = chain.size() - 1; k >= 0; k--) {
-                    queue.addLast(new Action(Kind.BREAK, chain.get(k), null, true));
+                    Action b = new Action(Kind.BREAK, chain.get(k), null, true);
+                    b.forCell = i;
+                    queue.addLast(b);
                 }
                 StartBuildMod.LOGGER.info("[StartBuild] temporary support for {} at {}: {} block(s)",
                         name(want), t, chain.size());
@@ -572,7 +607,7 @@ final class NaturalBuilder {
             a.against = a.target;
             a.face = face;
             a.hit = Vec3.atCenterOf(a.target).add(face.getStepX() * 0.5, face.getStepY() * 0.5, face.getStepZ() * 0.5);
-            a.stand = standFor(level, player, a.hit, a.target);
+            a.stand = standFor(level, player, a.hit, a.target, a.target);
             return a.stand != null;
         }
 
@@ -583,7 +618,7 @@ final class NaturalBuilder {
             a.against = on;
             a.face = Direction.UP;
             a.hit = Vec3.atCenterOf(on).add(0, 0.5, 0);
-            a.stand = standFor(level, player, a.hit, a.target);
+            a.stand = standFor(level, player, a.hit, a.target, on);
             return a.stand != null;
         }
 
@@ -610,7 +645,7 @@ final class NaturalBuilder {
             if (a.want != null && a.want.hasProperty(BlockStateProperties.AXIS)
                     && face.getAxis() != a.want.getValue(BlockStateProperties.AXIS)) continue;
             for (Vec3 hit : hitPoints(n, face)) {
-                Vec3 stand = standFor(level, player, hit, a.target);
+                Vec3 stand = standFor(level, player, hit, a.target, n);
                 if (stand == null) continue;
                 if (a.want != null && !simulate(player, level, a.target, n, face, hit, stand, a.want)) continue;
                 a.against = n;
@@ -680,18 +715,23 @@ final class NaturalBuilder {
         }
     }
 
-    private boolean clickWouldWork(LocalPlayer player, ClientLevel level, BlockPos target, BlockPos against,
-                                   Direction face, BlockState want) {
+    /** Pillars (logs) take their axis from the clicked face. */
+    private static boolean axisOk(Direction face, BlockState want) {
         if (!want.hasProperty(BlockStateProperties.AXIS)) return true;
         return face.getAxis() == want.getValue(BlockStateProperties.AXIS);
     }
 
-    /** A spot (feet position) from which `hit` is in reach, the body is in free air and not in `target`. */
-    private Vec3 standFor(ClientLevel level, LocalPlayer player, Vec3 hit, BlockPos target) {
+    /**
+     * A spot (feet position) from which `hit` is in reach, the body is in free air and not in `target`, and
+     * the face at `hit` of block `against` can actually be SEEN - a player does not click through walls or
+     * leaves, and it would look wrong on camera.
+     */
+    private Vec3 standFor(ClientLevel level, LocalPlayer player, Vec3 hit, BlockPos target, BlockPos against) {
         double eyeH = player.getEyeHeight();
         Vec3 feet = player.position();
         // Staying put reads most naturally, and is the common case once the builder is working an area.
-        if (feet.add(0, eyeH, 0).distanceTo(hit) <= REACH && bodyFree(level, feet, target)) {
+        if (feet.add(0, eyeH, 0).distanceTo(hit) <= REACH && bodyFree(level, feet, target)
+                && visible(level, player, feet.add(0, eyeH, 0), hit, against)) {
             return feet;
         }
         Vec3 best = null;
@@ -707,6 +747,8 @@ final class NaturalBuilder {
                     if (cand.add(0, eyeH, 0).distanceTo(hit) > REACH) continue;
                     if (!bodyFree(level, cand, target)) continue;
                     double cost = cand.distanceTo(feet);
+                    if (cost >= bestCost) continue;
+                    if (!visible(level, player, cand.add(0, eyeH, 0), hit, against)) continue;
                     if (cost < bestCost) {
                         bestCost = cost;
                         best = cand;
@@ -716,6 +758,13 @@ final class NaturalBuilder {
             if (best != null) return best;
         }
         return best;
+    }
+
+    /** The first block the eye->hit ray meets is `against` (or nothing solid is in the way). */
+    private static boolean visible(ClientLevel level, LocalPlayer player, Vec3 eye, Vec3 hit, BlockPos against) {
+        Vec3 into = hit.add(Vec3.atCenterOf(against).subtract(hit).normalize().scale(0.05));
+        BlockHitResult r = level.clip(new ClipContext(eye, into, ClipContext.Block.COLLIDER, ClipContext.Fluid.NONE, player));
+        return r.getType() == HitResult.Type.MISS || r.getBlockPos().equals(against);
     }
 
     private boolean bodyFree(ClientLevel level, Vec3 feet, BlockPos target) {
@@ -863,10 +912,6 @@ final class NaturalBuilder {
         player.setDeltaMovement(0, 0, 0);
     }
 
-    private void stop(LocalPlayer player) {
-        hover(player);
-    }
-
     /** Fly along `route`. @return true once at the end of it. */
     private boolean fly(LocalPlayer player, ClientLevel level) {
         if (route.isEmpty()) {
@@ -908,9 +953,10 @@ final class NaturalBuilder {
 
     // ================================================================== path finding
 
-    private static final int PATH_MAX_NODES = 60000;
-    /** Extra cost of going through a block (it has to be broken): only when there is no way round. */
-    private static final int DIG_COST = 40;
+    private static final int AIR_MAX_NODES = 25000;
+    private static final int DIG_MAX_NODES = 25000;
+    /** Extra cost of going through one of our own blocks (it has to be broken, then rebuilt). */
+    private static final int DIG_COST = 8;
 
     /**
      * Sets `route` to `current.stand`. Straight if the line is clear; otherwise an A* path through the
@@ -958,70 +1004,55 @@ final class NaturalBuilder {
         return s.getCollisionShape(level, p).isEmpty();
     }
 
-    private static boolean diggable(ClientLevel level, BlockPos p) {
+    /**
+     * A block the player may break to get out: only this stage's own cells (build blocks are rebuilt,
+     * clearing cells are going anyway) and temporary blocks - never the landscape, new earth from an
+     * earlier stage, or anything else nothing would put back.
+     */
+    private boolean diggable(ClientLevel level, BlockPos p) {
         BlockState s = level.getBlockState(p);
-        return s.getFluidState().isEmpty() && s.getDestroySpeed(level, p) >= 0;
+        if (!s.getFluidState().isEmpty() || s.getDestroySpeed(level, p) < 0) return false;
+        if (scaffolds.contains(p)) return true;
+        int i = indexOf(p);
+        return i >= 0 && status[i] != 0;
     }
 
     private static Vec3 feetAt(BlockPos c) {
         return new Vec3(c.getX() + 0.5, c.getY() + 0.02, c.getZ() + 0.5);
     }
 
-    /** A* over feet cells (the player is one cell wide, two tall). Null if unreachable. */
+    /**
+     * A* over feet cells (the player is one cell wide, two tall): first through the air only, and only if
+     * that finds nothing, through this stage's own blocks as well. Null if unreachable.
+     */
     private List<BlockPos> findPath(ClientLevel level, LocalPlayer player, Vec3 goal) {
         BlockPos start = BlockPos.containing(player.position());
         BlockPos end = BlockPos.containing(goal);
-        int minX = Math.min(start.getX(), end.getX()) - 40, maxX = Math.max(start.getX(), end.getX()) + 40;
-        int minZ = Math.min(start.getZ(), end.getZ()) - 40, maxZ = Math.max(start.getZ(), end.getZ()) + 40;
-        int minY = Math.max(level.getMinY(), Math.min(start.getY(), end.getY()) - 10);
-        int maxY = Math.min(level.getMaxY() - 2, Math.max(Math.max(start.getY(), end.getY()), highestBuiltY) + 20);
-
-        java.util.PriorityQueue<long[]> open = new java.util.PriorityQueue<>((a, b) -> Long.compare(a[0], b[0]));
-        Map<Long, Integer> g = new HashMap<>();
-        Map<Long, Long> parent = new HashMap<>();
-        long s0 = start.asLong();
-        g.put(s0, 0);
-        open.add(new long[]{h(start, end), s0});
-        int expanded = 0;
-        while (!open.isEmpty()) {
-            long[] top = open.poll();
-            long key = top[1];
-            BlockPos c = BlockPos.of(key);
-            int gc = g.get(key);
-            if (top[0] > gc + h(c, end)) continue;          // stale entry
-            // Close enough: from here a short straight hop reaches the exact stand.
-            if (c.distManhattan(end) <= 1 && clearLine(level, feetAt(c), goal)) {
-                List<BlockPos> path = new ArrayList<>();
-                for (Long k = key; k != null; k = parent.get(k)) path.add(0, BlockPos.of(k));
-                path.remove(0);                              // the start cell
-                return path;
-            }
-            if (++expanded > PATH_MAX_NODES) return null;
-            for (Direction d : Direction.values()) {
-                BlockPos n = c.relative(d);
-                if (n.getX() < minX || n.getX() > maxX || n.getZ() < minZ || n.getZ() > maxZ
-                        || n.getY() < minY || n.getY() > maxY) continue;
-                int cost = 1;
-                for (BlockPos part : new BlockPos[]{n, n.above()}) {
-                    if (free(level, part)) continue;
-                    if (!diggable(level, part)) { cost = -1; break; }
-                    cost += DIG_COST;
-                }
-                if (cost < 0) continue;
-                long nk = n.asLong();
-                int ng = gc + cost;
-                Integer old = g.get(nk);
-                if (old != null && old <= ng) continue;
-                g.put(nk, ng);
-                parent.put(nk, key);
-                open.add(new long[]{ng + h(n, end), nk});
-            }
+        int[] box = {
+                Math.min(start.getX(), end.getX()) - 40,
+                Math.max(level.getMinY(), Math.min(start.getY(), end.getY()) - 10),
+                Math.min(start.getZ(), end.getZ()) - 40,
+                Math.max(start.getX(), end.getX()) + 40,
+                Math.min(level.getMaxY() - 2, Math.max(Math.max(start.getY(), end.getY()), highestBuiltY) + 20),
+                Math.max(start.getZ(), end.getZ()) + 40};
+        BlockPos.MutableBlockPos m = new BlockPos.MutableBlockPos();
+        // Close enough: from here a short straight hop reaches the exact stand.
+        FlightPath.Goal reached = (x, y, z) -> Math.abs(x - end.getX()) + Math.abs(y - end.getY())
+                + Math.abs(z - end.getZ()) <= 1 && clearLine(level, feetAt(new BlockPos(x, y, z)), goal);
+        List<int[]> cells = FlightPath.find(start.getX(), start.getY(), start.getZ(), end.getX(), end.getY(), end.getZ(),
+                box, (x, y, z) -> free(level, m.set(x, y, z)) ? 0 : FlightPath.BLOCKED, reached, AIR_MAX_NODES);
+        if (cells == null) {
+            cells = FlightPath.find(start.getX(), start.getY(), start.getZ(), end.getX(), end.getY(), end.getZ(), box,
+                    (x, y, z) -> {
+                        m.set(x, y, z);
+                        if (free(level, m)) return 0;
+                        return diggable(level, m.immutable()) ? DIG_COST : FlightPath.BLOCKED;
+                    }, reached, DIG_MAX_NODES);
         }
-        return null;
-    }
-
-    private static long h(BlockPos a, BlockPos b) {
-        return a.distManhattan(b);
+        if (cells == null) return null;
+        List<BlockPos> out = new ArrayList<>(cells.size());
+        for (int[] c : cells) out.add(new BlockPos(c[0], c[1], c[2]));
+        return out;
     }
 
     /** Cell path -> few waypoints: from each point, jump to the furthest one in a clear straight line. */
@@ -1167,7 +1198,9 @@ final class NaturalBuilder {
             if (connecting && (n.equals("north") || n.equals("south") || n.equals("east") || n.equals("west")
                     || n.equals("up") || n.equals("down"))) continue;
             if (b instanceof StairBlock && n.equals("shape")) continue;
-            if (n.equals("waterlogged") || n.equals("moisture")) continue;
+            // Worked out by the game from the surroundings when placed: leaf distance to a log, grass
+            // "snowy" from the block above. A schematic's value cannot be clicked into place.
+            if (n.equals("waterlogged") || n.equals("moisture") || n.equals("distance") || n.equals("snowy")) continue;
             return false;
         }
         return true;
@@ -1199,7 +1232,11 @@ final class NaturalBuilder {
     private static Item specialUse(BlockState have, BlockState want) {
         Block wb = want.getBlock();
         Block hb = have.getBlock();
-        if (isWater(want)) return (have.isAir() || have.canBeReplaced()) && !isWater(have) ? Items.WATER_BUCKET : null;
+        // Water: a bucket into air, or into water that is only flowing there (a source is wanted).
+        if (isWater(want)) {
+            if (!have.getFluidState().isEmpty()) return have.getFluidState().isSource() ? null : Items.WATER_BUCKET;
+            return have.isAir() || have.canBeReplaced() ? Items.WATER_BUCKET : null;
+        }
         if (wb == Blocks.NETHER_PORTAL) return have.isAir() ? Items.FLINT_AND_STEEL : null;   // light the frame
         if ((hb == Blocks.DIRT || hb == Blocks.GRASS_BLOCK) && wb == Blocks.FARMLAND) return Items.WOODEN_HOE;
         if ((hb == Blocks.DIRT || hb == Blocks.GRASS_BLOCK) && wb == Blocks.DIRT_PATH) return Items.WOODEN_SHOVEL;
@@ -1230,7 +1267,13 @@ final class NaturalBuilder {
         lastProblem = why + " (" + (a == null ? "?" : a.target) + ")";
         if (a != null && a.scaffold) {
             if (a.kind == Kind.BREAK) scaffoldRetryAt.put(a.target, ticks + 1200);
-            queue.clear();      // the rest of that scaffold sequence depends on this step
+            if (a.kind == Kind.PLACE) {
+                // The support cannot be built: set the cell it was for aside too, otherwise the same
+                // sequence is planned again at once - place one support, break it, repeat for ever (each
+                // step counts as progress, so the watchdog would never notice).
+                if (a.forCell >= 0 && status[a.forCell] == 1) status[a.forCell] = 3;
+                queue.removeIf(q -> !q.scaffold || q.kind == Kind.PLACE);   // keep only the clean-up breaks
+            }
             return;
         }
         if (a == null) return;
@@ -1305,6 +1348,13 @@ final class NaturalBuilder {
     int recheckAll(ClientLevel level) {
         int reopened = 0;
         for (int i = 0; i < status.length; i++) {
+            // Done cells that are wrong now, and parked ones (e.g. a block broken to get out of an enclosed
+            // space late in the run) get another go.
+            if (status[i] == 3) {
+                status[i] = 1;
+                reopened++;
+                continue;
+            }
             if (status[i] != 2) continue;
             BlockPos p = worldOf(i);
             if (!matches(level.getBlockState(p), model.states[i])) {

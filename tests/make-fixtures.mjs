@@ -5,7 +5,7 @@
  * Creates, in ./fixtures:
  *   tree_house_test.litematic   v7, 4x3x2, palette {air, stone}, 18 of 24 blocks solid
  *   tree_house_test.schem       Sponge v2, same name and size  -> same-build twin
- *   old_build.litematic         v6 -> must be flagged "too old" for Baritone #build
+ *   old_build.litematic         v6 -> must be flagged as an older format
  *   flat.schematic              MCEdit, 5x1x5, 20 of 25 solid
  *   copy_of_tree_house.litematic  byte-identical copy -> duplicate group
  *   broken.litematic            not NBT -> must be reported as unreadable

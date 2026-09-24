@@ -11,9 +11,12 @@ import net.minecraft.world.level.block.state.BlockState;
 import net.minecraft.world.level.levelgen.Heightmap;
 
 import java.util.ArrayDeque;
+import java.util.ArrayList;
 import java.util.Deque;
 import java.util.HashMap;
 import java.util.HashSet;
+import java.util.LinkedHashMap;
+import java.util.List;
 import java.util.Map;
 import java.util.Set;
 
@@ -21,33 +24,38 @@ import java.util.Set;
  * Plans how the character reshapes the ground before building, so the build ends up IN the landscape: no
  * pad floating over a dip, no box sunk into a hillside with a cliff behind it.
  *
- * The plan is two target models that {@link NaturalBuilder} works through by hand, on camera:
- *   - CLEAR (worked top-down, so it reads as digging/felling): everything standing above the new ground -
- *     the hillside inside and around the footprint, plants, and whole trees in the way (logs, the leaves
- *     that would decay without them, vines);
- *   - FILL (worked bottom-up): earth to raise dips to the pad, and a fresh top block (grass, sand, ...) on
- *     every column whose surface changed, so a cut shows grass, not bare dirt or stone.
+ * The plan is a list of target models that {@link NaturalBuilder} works through by hand, on camera:
+ *   - one CLEAR part per tree in the way (worked top-down: a player felling it - leaves and trunk - one
+ *     tree at a time), whole: trunk + exactly the leaves vanilla would let decay + vines/cocoa/nests;
+ *   - CLEAR the ground (top-down, reads as digging): the hillside above the new ground, plants, and
+ *     everything in the build's volume;
+ *   - FILL (bottom-up): earth to raise dips to the pad, and a fresh top block (grass, sand, ...) on every
+ *     column whose surface changed, so a cut shows grass, not bare dirt or stone.
  *
- * The new ground height: the footprint is flat at the build's base; around it the ground eases back to
- * the natural height within {@code radius} blocks, never steeper than the slope the site needs, with a
- * little noise so the banks are not a perfect cone. Water columns are left alone, and cuts never go below
- * an adjacent lake/river surface (that would let the water run in).
+ * The new ground height ({@link #targetHeights}): the footprint is flat at the build's base; around it the
+ * ground eases back to the natural height, never steeper than the slope the site needs, with a little
+ * noise so the banks are not a perfect cone. The blend zone grows (up to {@link #MAX_RADIUS}) on steep
+ * sites so there is no cliff where it ends. Water columns are left alone, and cuts never go below an
+ * adjacent lake/river surface (that would let the water run in).
  */
 final class Terraformer {
 
-    record Plan(SchematicModel clear, BlockPos clearOrigin, SchematicModel fill, BlockPos fillOrigin,
-                int cut, int filled, int treeBlocks, BlockState surface, BlockState subsurface) {
-        String describe() {
-            return String.format("%,d block(s) to clear (%,d of them trees), %,d to place; ground %s over %s",
-                    cut, treeBlocks, filled, name(surface), name(subsurface));
-        }
+    /** One stage of the terraforming: a model the builder works through (clearing = break its AIR cells). */
+    record Part(String label, SchematicModel model, BlockPos origin, boolean clearing) {
+    }
 
-        boolean isEmpty() {
-            return clear == null && fill == null;
+    record Plan(List<Part> parts, int cut, int filled, int treeBlocks, int trees, int radius,
+                BlockState surface, BlockState subsurface, int floodRisk) {
+        String describe() {
+            return String.format("%,d block(s) to clear (%d tree(s), %,d tree blocks), %,d to place, blend radius %d; "
+                            + "ground %s over %s%s", cut, trees, treeBlocks, filled, radius, name(surface), name(subsurface),
+                    floodRisk > 0 ? "; WARNING: water above the base next to " + floodRisk + " footprint column(s)" : "");
         }
     }
 
-    private static final int UNKNOWN = Integer.MIN_VALUE;
+    static final int UNKNOWN = Integer.MIN_VALUE;
+    /** The blend zone never reaches further than this from the footprint. */
+    static final int MAX_RADIUS = 24;
     private static final int MAX_TREE_LOGS = 6000;
 
     private Terraformer() {
@@ -55,7 +63,7 @@ final class Terraformer {
 
     static Plan plan(ClientLevel level, BlockPos origin, SchematicModel m, int radius) {
         int pad = origin.getY() - 1;                        // the ground the build stands on
-        int r = Math.max(2, radius);
+        int r = MAX_RADIUS;                                 // sample the widest zone; targetHeights picks the blend
         int fx1 = origin.getX(), fz1 = origin.getZ(), fx2 = fx1 + m.sizeX - 1, fz2 = fz1 + m.sizeZ - 1;
         int zx = fx1 - r, zz = fz1 - r, w = m.sizeX + 2 * r, d = m.sizeZ + 2 * r;
 
@@ -77,7 +85,7 @@ final class Terraformer {
                 top[i] = level.getHeight(Heightmap.Types.MOTION_BLOCKING, x, z);
                 BlockState gs = level.getBlockState(new BlockPos(x, g, z));
                 wet[i] = !gs.getFluidState().isEmpty();
-                if (wet[i]) continue;
+                if (wet[i] || distToFoot(x, z, fx1, fz1, fx2, fz2) > radius + 4) continue;   // tally near the site
                 dryCols++;
                 surfTally.merge(gs.getBlock().defaultBlockState(), 1, Integer::sum);
                 for (int k = 1; k <= 3; k++) {
@@ -91,51 +99,23 @@ final class Terraformer {
         BlockState subsurface = most(subTally, Blocks.DIRT.defaultBlockState());
         boolean snowy = dryCols > 0 && snowCols * 2 > dryCols;
 
-        // 2. The new ground height. The slope is as gentle as the site allows: 1 up per 2 across, steeper
-        //    only when the height difference at the edge of the zone would not fit otherwise.
-        double maxEdge = 0;
+        // 2. The new ground height.
+        int[] noise = new int[w * d];
+        for (int dz = 0; dz < d; dz++) {
+            for (int dx = 0; dx < w; dx++) {
+                noise[dz * w + dx] = (int) Math.round(noise(zx + dx, zz + dz) * 90);   // 0..90 (hundredths)
+            }
+        }
+        int[] blend = new int[1];
+        int[] target = targetHeights(ground, wet, noise, w, d, r, r, m.sizeX, m.sizeZ, pad, radius, blend);
+
+        // Water above the base right next to the footprint: digging the footprint would let it in.
+        int floodRisk = 0;
         for (int dz = 0; dz < d; dz++) {
             for (int dx = 0; dx < w; dx++) {
                 int i = dz * w + dx;
-                if (ground[i] == UNKNOWN || wet[i]) continue;
-                if (distToFoot(zx + dx, zz + dz, fx1, fz1, fx2, fz2) >= r - 1) {
-                    maxEdge = Math.max(maxEdge, Math.abs(ground[i] - pad));
-                }
-            }
-        }
-        double slope = Math.min(1.5, Math.max(0.5, maxEdge / r));
-        int[] target = new int[w * d];
-        for (int dz = 0; dz < d; dz++) {
-            for (int dx = 0; dx < w; dx++) {
-                int x = zx + dx, z = zz + dz, i = dz * w + dx;
-                if (ground[i] == UNKNOWN) {
-                    target[i] = UNKNOWN;
-                } else if (inFoot(x, z, fx1, fz1, fx2, fz2)) {
-                    target[i] = pad;
-                } else if (wet[i]) {
-                    target[i] = ground[i];
-                } else {
-                    double dist = distToFoot(x, z, fx1, fz1, fx2, fz2);
-                    int allowed = (int) Math.floor(dist * slope + noise(x, z) * 0.9);
-                    int diff = ground[i] - pad;
-                    target[i] = pad + Math.max(-allowed, Math.min(allowed, diff));
-                }
-            }
-        }
-        // Never dig below the surface of water next to a cut: it would pour into the site.
-        for (int dz = 0; dz < d; dz++) {
-            for (int dx = 0; dx < w; dx++) {
-                int i = dz * w + dx;
-                if (target[i] == UNKNOWN || target[i] >= ground[i]
-                        || inFoot(zx + dx, zz + dz, fx1, fz1, fx2, fz2)) continue;
-                for (int oz = -2; oz <= 2; oz++) {
-                    for (int ox = -2; ox <= 2; ox++) {
-                        int nx = dx + ox, nz = dz + oz;
-                        if (nx < 0 || nz < 0 || nx >= w || nz >= d) continue;
-                        int j = nz * w + nx;
-                        if (wet[j] && ground[j] != UNKNOWN) target[i] = Math.min(ground[i], Math.max(target[i], ground[j]));
-                    }
-                }
+                if (!wet[i] || ground[i] == UNKNOWN || ground[i] <= pad) continue;
+                if (distToFoot(zx + dx, zz + dz, fx1, fz1, fx2, fz2) <= 2) floodRisk++;
             }
         }
 
@@ -158,7 +138,7 @@ final class Terraformer {
                 for (int y = t + 1; y <= hi; y++) {
                     BlockPos p = new BlockPos(x, y, z);
                     BlockState s = level.getBlockState(p);
-                    if (!foot && (s.is(BlockTags.LOGS) || s.is(BlockTags.LEAVES))) continue;   // trees: whole, below
+                    if (!foot && (s.is(BlockTags.LOGS) || s.is(BlockTags.LEAVES) || isWood(s))) continue;
                     if (clearable(level, p, s)) clear.put(p, air);
                 }
                 if (t < g) {
@@ -171,25 +151,116 @@ final class Terraformer {
             }
         }
 
-        // 4. Whole trees: a trunk standing where the ground changes (or anything woody in the build's way)
-        //    goes with all its leaves - a half-felled tree or floating leaves would give the game away.
-        int before = clear.size();
-        fellTrees(level, clear, ground, top, target, zx, zz, w, d, fx1, fz1, fx2, fz2, pad + m.sizeY + 6);
-        int treeBlocks = clear.size() - before;
+        // 4. Whole trees, each its own part: a trunk standing where the ground changes (or anything woody in
+        //    the build's way) goes with all its leaves - a half-felled tree or floating leaves would show.
+        List<Map<BlockPos, BlockState>> trees = fellTrees(level, clear, ground, top, target, zx, zz, w, d,
+                fx1, fz1, fx2, fz2, pad + m.sizeY + 6);
+        int treeBlocks = 0;
+        for (Map<BlockPos, BlockState> t : trees) {
+            treeBlocks += t.size();
+            for (BlockPos p : t.keySet()) clear.remove(p);  // a tree's cells belong to that tree's part only
+        }
+
+        List<Part> parts = new ArrayList<>();
+        int n = 0;
+        for (Map<BlockPos, BlockState> t : trees) {
+            BlockPos[] o = new BlockPos[1];
+            SchematicModel tm = toModel(t, o);
+            if (tm != null) parts.add(new Part("terraforming: felling tree " + (++n) + "/" + trees.size(), tm, o[0], true));
+        }
         BlockPos[] co = new BlockPos[1], fo = new BlockPos[1];
         SchematicModel cm = toModel(clear, co);
+        if (cm != null) parts.add(new Part("terraforming: digging", cm, co[0], true));
         SchematicModel fm = toModel(fill, fo);
-        return new Plan(cm, co[0], fm, fo[0], clear.size(), fill.size(), treeBlocks, surface, subsurface);
+        if (fm != null) parts.add(new Part("terraforming: filling", fm, fo[0], false));
+        return new Plan(parts, clear.size() + treeBlocks, fill.size(), treeBlocks, trees.size(), blend[0],
+                surface, subsurface, floodRisk);
+    }
+
+    /**
+     * The new ground height per column - pure arithmetic, unit-tested.
+     *
+     * @param ground natural ground y per column (UNKNOWN = not loaded), row-major w x d
+     * @param wet    column surface is water (left as it is)
+     * @param noise  0..90 per column: hundredths of a block of extra allowance, so bank edges wander
+     * @param fx,fz  footprint corner inside the grid; fw,fd its size
+     * @param pad    the ground level under the build
+     * @param minRadius the configured blend radius (the zone grows beyond it only when the site needs it)
+     * @param blendOut receives the radius actually used
+     * @return target height per column (UNKNOWN where ground is unknown)
+     */
+    static int[] targetHeights(int[] ground, boolean[] wet, int[] noise, int w, int d, int fx, int fz, int fw, int fd,
+                               int pad, int minRadius, int[] blendOut) {
+        int fx2 = fx + fw - 1, fz2 = fz + fd - 1;
+        // Blend radius: the smallest radius (>= minRadius, <= MAX_RADIUS) at which the height difference at
+        // the zone's edge fits a slope of at most 1 (steeper only if even MAX_RADIUS cannot fit it).
+        int r = Math.max(2, Math.min(minRadius, MAX_RADIUS));
+        double slope = 0.5;
+        for (int cand = r; cand <= MAX_RADIUS; cand++) {
+            double maxEdge = 0;
+            for (int z = 0; z < d; z++) {
+                for (int x = 0; x < w; x++) {
+                    int i = z * w + x;
+                    if (ground[i] == UNKNOWN || wet[i]) continue;
+                    double dist = distToFoot(x, z, fx, fz, fx2, fz2);
+                    if (dist >= cand - 1 && dist <= cand) maxEdge = Math.max(maxEdge, Math.abs(ground[i] - pad));
+                }
+            }
+            r = cand;
+            slope = Math.max(0.5, maxEdge / cand);
+            if (slope <= 1.0) break;
+        }
+        slope = Math.min(3.0, slope);
+
+        int[] target = new int[w * d];
+        for (int z = 0; z < d; z++) {
+            for (int x = 0; x < w; x++) {
+                int i = z * w + x;
+                if (ground[i] == UNKNOWN) {
+                    target[i] = UNKNOWN;
+                } else if (inFoot(x, z, fx, fz, fx2, fz2)) {
+                    target[i] = pad;
+                } else if (wet[i]) {
+                    target[i] = ground[i];
+                } else {
+                    double dist = distToFoot(x, z, fx, fz, fx2, fz2);
+                    if (dist > r) {
+                        target[i] = ground[i];              // beyond the blend zone: untouched
+                        continue;
+                    }
+                    int allowed = (int) Math.floor(dist * slope + noise[i] / 100.0);
+                    int diff = ground[i] - pad;
+                    target[i] = pad + Math.max(-allowed, Math.min(allowed, diff));
+                }
+            }
+        }
+        // Never dig below the surface of water next to a cut: it would pour into the site.
+        for (int z = 0; z < d; z++) {
+            for (int x = 0; x < w; x++) {
+                int i = z * w + x;
+                if (target[i] == UNKNOWN || target[i] >= ground[i] || inFoot(x, z, fx, fz, fx2, fz2)) continue;
+                for (int oz = -2; oz <= 2; oz++) {
+                    for (int ox = -2; ox <= 2; ox++) {
+                        int nx = x + ox, nz = z + oz;
+                        if (nx < 0 || nz < 0 || nx >= w || nz >= d) continue;
+                        int j = nz * w + nx;
+                        if (wet[j] && ground[j] != UNKNOWN) target[i] = Math.min(ground[i], Math.max(target[i], ground[j]));
+                    }
+                }
+            }
+        }
+        if (blendOut != null) blendOut[0] = r;
+        return target;
     }
 
     // ------------------------------------------------------------------ trees
 
-    private static void fellTrees(ClientLevel level, Map<BlockPos, BlockState> clear, int[] ground, int[] top,
-                                  int[] target, int zx, int zz, int w, int d,
-                                  int fx1, int fz1, int fx2, int fz2, int boxTop) {
+    /** @return the trees to fell, each as its own set of cells (top-down worked by its own part). */
+    private static List<Map<BlockPos, BlockState>> fellTrees(ClientLevel level, Map<BlockPos, BlockState> clear,
+                                                             int[] ground, int[] top, int[] target, int zx, int zz,
+                                                             int w, int d, int fx1, int fz1, int fx2, int fz2, int boxTop) {
         BlockState air = Blocks.AIR.defaultBlockState();
-        Set<BlockPos> logs = new HashSet<>();
-        Deque<BlockPos> q = new ArrayDeque<>();
+        Set<BlockPos> seeds = new HashSet<>();
         for (int dz = 0; dz < d; dz++) {
             for (int dx = 0; dx < w; dx++) {
                 int x = zx + dx, z = zz + dz, i = dz * w + dx;
@@ -200,52 +271,67 @@ final class Terraformer {
                 for (int y = Math.min(target[i], ground[i]) + 1; y <= top[i]; y++) {
                     BlockPos p = new BlockPos(x, y, z);
                     BlockState s = level.getBlockState(p);
-                    if (s.is(BlockTags.LOGS) && (changed || y <= boxTop)) {
-                        if (logs.add(p)) q.add(p);
+                    if (isWood(s) && (changed || y <= boxTop)) {
+                        seeds.add(p);
                     } else if (inBox && y <= boxTop && s.is(BlockTags.LEAVES)) {
                         clear.put(p, air);                  // overhanging leaves inside the build's space
                     }
                 }
             }
         }
-        // The whole trunk and its branches (logs touching logs, diagonals included).
-        while (!q.isEmpty() && logs.size() < MAX_TREE_LOGS) {
-            BlockPos c = q.poll();
-            for (int ox = -1; ox <= 1; ox++) {
-                for (int oy = -1; oy <= 1; oy++) {
-                    for (int oz = -1; oz <= 1; oz++) {
-                        BlockPos n = c.offset(ox, oy, oz);
-                        if (!logs.contains(n) && level.getBlockState(n).is(BlockTags.LOGS)
-                                && n.getY() > groundOf(n, ground, zx, zz, w, d)) {
-                            logs.add(n);
+        // Each tree: the wood connected to a seed (logs touching logs, diagonals included).
+        List<Set<BlockPos>> trunks = new ArrayList<>();
+        Set<BlockPos> allWood = new HashSet<>();
+        for (BlockPos seed : seeds) {
+            if (allWood.contains(seed)) continue;
+            Set<BlockPos> wood = new HashSet<>();
+            Deque<BlockPos> q = new ArrayDeque<>();
+            wood.add(seed);
+            q.add(seed);
+            while (!q.isEmpty() && allWood.size() + wood.size() < MAX_TREE_LOGS) {
+                BlockPos c = q.poll();
+                for (int ox = -1; ox <= 1; ox++) {
+                    for (int oy = -1; oy <= 1; oy++) {
+                        for (int oz = -1; oz <= 1; oz++) {
+                            BlockPos n = c.offset(ox, oy, oz);
+                            if (wood.contains(n) || allWood.contains(n) || !isWood(level.getBlockState(n))) continue;
+                            if (n.getY() <= groundOf(n, ground, zx, zz, w, d)) continue;   // not into the ground
+                            wood.add(n);
                             q.add(n);
                         }
                     }
                 }
             }
+            allWood.addAll(wood);
+            trunks.add(wood);
         }
-        if (logs.isEmpty()) return;
-        for (BlockPos p : logs) clear.put(p, air);
+        List<Map<BlockPos, BlockState>> trees = new ArrayList<>();
+        if (trunks.isEmpty()) return trees;
+        for (Set<BlockPos> t : trunks) {
+            Map<BlockPos, BlockState> cells = new LinkedHashMap<>();
+            for (BlockPos p : t) cells.put(p, air);
+            trees.add(cells);
+        }
 
-        // Leaves: exactly the ones vanilla would let decay once those logs are gone - no log left within
-        // 6 steps through leaves. Everything else (neighbouring trees) stays.
+        // Leaves: exactly the ones vanilla would let decay once that wood is gone - no remaining log within
+        // 6 steps through leaves. Each goes with the felled trunk that reaches it first.
+        int e = LeavesBlock.DECAY_DISTANCE;
         int minX = Integer.MAX_VALUE, minY = Integer.MAX_VALUE, minZ = Integer.MAX_VALUE;
         int maxX = Integer.MIN_VALUE, maxY = Integer.MIN_VALUE, maxZ = Integer.MIN_VALUE;
-        for (BlockPos p : logs) {
+        for (BlockPos p : allWood) {
             minX = Math.min(minX, p.getX()); maxX = Math.max(maxX, p.getX());
             minY = Math.min(minY, p.getY()); maxY = Math.max(maxY, p.getY());
             minZ = Math.min(minZ, p.getZ()); maxZ = Math.max(maxZ, p.getZ());
         }
-        int e = LeavesBlock.DECAY_DISTANCE;
-        minX -= e; minY -= e; minZ -= e; maxX += e; maxY += e; maxZ += e;
-        // Supported = reachable from a remaining log within 6 steps, searched from logs up to 13 away.
+        // Supported leaves: reachable from a log that stays, searched from logs up to 2*e away.
+        Set<BlockPos> supported = new HashSet<>();
         Map<BlockPos, Integer> dist = new HashMap<>();
         Deque<BlockPos> bq = new ArrayDeque<>();
-        for (int x = minX - e; x <= maxX + e; x++) {
-            for (int y = minY - e; y <= maxY + e; y++) {
-                for (int z = minZ - e; z <= maxZ + e; z++) {
+        for (int x = minX - 2 * e; x <= maxX + 2 * e; x++) {
+            for (int y = minY - 2 * e; y <= maxY + 2 * e; y++) {
+                for (int z = minZ - 2 * e; z <= maxZ + 2 * e; z++) {
                     BlockPos p = new BlockPos(x, y, z);
-                    if (!logs.contains(p) && level.getBlockState(p).is(BlockTags.LOGS)) {
+                    if (!allWood.contains(p) && level.getBlockState(p).is(BlockTags.LOGS)) {
                         dist.put(p, 0);
                         bq.add(p);
                     }
@@ -260,36 +346,54 @@ final class Terraformer {
                 BlockPos n = c.relative(dir);
                 if (dist.containsKey(n) || !level.getBlockState(n).is(BlockTags.LEAVES)) continue;
                 dist.put(n, dc + 1);
+                supported.add(n);
                 bq.add(n);
             }
         }
-        for (int x = minX; x <= maxX; x++) {
-            for (int y = minY; y <= maxY; y++) {
-                for (int z = minZ; z <= maxZ; z++) {
-                    BlockPos p = new BlockPos(x, y, z);
-                    BlockState s = level.getBlockState(p);
-                    if (!s.is(BlockTags.LEAVES) || dist.containsKey(p)) continue;
-                    if (s.hasProperty(LeavesBlock.PERSISTENT) && s.getValue(LeavesBlock.PERSISTENT)) continue;
-                    clear.put(p, air);
-                }
+        // Unsupported leaves, assigned to trees by a BFS out from each felled trunk (first to arrive wins).
+        Map<BlockPos, Integer> owner = new HashMap<>();
+        Deque<BlockPos> lq = new ArrayDeque<>();
+        for (int k = 0; k < trunks.size(); k++) {
+            for (BlockPos p : trunks.get(k)) {
+                owner.put(p, k);
+                lq.add(p);
             }
         }
-        // Things hanging on or sitting in the felled tree (vines, cocoa, nests, snow on the leaves).
-        Deque<BlockPos> hang = new ArrayDeque<>(clear.keySet());
-        Set<BlockPos> seen = new HashSet<>(clear.keySet());
-        while (!hang.isEmpty() && seen.size() < 200_000) {
-            BlockPos c = hang.poll();
+        while (!lq.isEmpty()) {
+            BlockPos c = lq.poll();
+            int k = owner.get(c);
             for (Direction dir : Direction.values()) {
                 BlockPos n = c.relative(dir);
-                if (!seen.add(n)) continue;
+                if (owner.containsKey(n) || supported.contains(n)) continue;
+                if (n.getX() < minX - e || n.getX() > maxX + e || n.getY() < minY - e || n.getY() > maxY + e
+                        || n.getZ() < minZ - e || n.getZ() > maxZ + e) continue;
                 BlockState s = level.getBlockState(n);
-                if (s.is(Blocks.VINE) || s.is(Blocks.COCOA) || s.is(Blocks.BEE_NEST) || s.is(Blocks.PALE_HANGING_MOSS)
-                        || (s.is(Blocks.SNOW) && dir == Direction.UP)) {
-                    clear.put(n, air);
-                    hang.add(n);
+                if (!s.is(BlockTags.LEAVES)) continue;
+                if (s.hasProperty(LeavesBlock.PERSISTENT) && s.getValue(LeavesBlock.PERSISTENT)) continue;
+                owner.put(n, k);
+                trees.get(k).put(n, air);
+                lq.add(n);
+            }
+        }
+        // Things hanging on or sitting in each felled tree (vines, cocoa, nests, snow on the leaves).
+        for (Map<BlockPos, BlockState> tree : trees) {
+            Deque<BlockPos> hang = new ArrayDeque<>(tree.keySet());
+            int processed = 0;
+            while (!hang.isEmpty() && processed++ < 50_000) {
+                BlockPos c = hang.poll();
+                for (Direction dir : Direction.values()) {
+                    BlockPos n = c.relative(dir);
+                    if (tree.containsKey(n)) continue;
+                    BlockState s = level.getBlockState(n);
+                    if (s.is(Blocks.VINE) || s.is(Blocks.COCOA) || s.is(Blocks.BEE_NEST) || s.is(Blocks.PALE_HANGING_MOSS)
+                            || (s.is(Blocks.SNOW) && dir == Direction.UP)) {
+                        tree.put(n, air);
+                        hang.add(n);
+                    }
                 }
             }
         }
+        return trees;
     }
 
     private static int groundOf(BlockPos p, int[] ground, int zx, int zz, int w, int d) {
@@ -301,14 +405,19 @@ final class Terraformer {
 
     // ------------------------------------------------------------------ helpers
 
+    /** Tree trunks and giant mushrooms: felled whole. */
+    private static boolean isWood(BlockState s) {
+        return s.is(BlockTags.LOGS) || s.is(Blocks.MUSHROOM_STEM) || s.is(Blocks.BROWN_MUSHROOM_BLOCK)
+                || s.is(Blocks.RED_MUSHROOM_BLOCK);
+    }
+
     /** The natural ground: the top solid block, looking through trees, cacti, bamboo and giant mushrooms. */
     static int groundAt(ClientLevel level, int x, int z) {
         int y = level.getHeight(Heightmap.Types.MOTION_BLOCKING_NO_LEAVES, x, z) - 1;
         while (y > level.getMinY()) {
             BlockState s = level.getBlockState(new BlockPos(x, y, z));
-            if (s.is(BlockTags.LOGS) || s.is(BlockTags.LEAVES) || s.is(Blocks.BEE_NEST) || s.is(Blocks.CACTUS)
-                    || s.is(Blocks.BAMBOO) || s.is(Blocks.MUSHROOM_STEM) || s.is(Blocks.BROWN_MUSHROOM_BLOCK)
-                    || s.is(Blocks.RED_MUSHROOM_BLOCK) || (s.isAir()) || (!s.blocksMotion() && s.getFluidState().isEmpty())) {
+            if (isWood(s) || s.is(BlockTags.LEAVES) || s.is(Blocks.BEE_NEST) || s.is(Blocks.CACTUS)
+                    || s.is(Blocks.BAMBOO) || s.isAir() || (!s.blocksMotion() && s.getFluidState().isEmpty())) {
                 y--;
             } else {
                 break;
@@ -322,18 +431,18 @@ final class Terraformer {
         return !s.isAir() && s.getFluidState().isEmpty() && s.getDestroySpeed(level, p) >= 0;
     }
 
-    private static boolean inFoot(int x, int z, int fx1, int fz1, int fx2, int fz2) {
+    static boolean inFoot(int x, int z, int fx1, int fz1, int fx2, int fz2) {
         return x >= fx1 && x <= fx2 && z >= fz1 && z <= fz2;
     }
 
-    private static double distToFoot(int x, int z, int fx1, int fz1, int fx2, int fz2) {
+    static double distToFoot(int x, int z, int fx1, int fz1, int fx2, int fz2) {
         int dx = Math.max(0, Math.max(fx1 - x, x - fx2));
         int dz = Math.max(0, Math.max(fz1 - z, z - fz2));
         return Math.sqrt(dx * dx + dz * dz);
     }
 
     /** Smooth value noise in [0, 1) on a 5-block lattice, so bank edges wander a little. */
-    private static double noise(int x, int z) {
+    static double noise(int x, int z) {
         int cx = Math.floorDiv(x, 5), cz = Math.floorDiv(z, 5);
         double fx = (x - cx * 5) / 5.0, fz = (z - cz * 5) / 5.0;
         double a = hash(cx, cz), b = hash(cx + 1, cz), c = hash(cx, cz + 1), e = hash(cx + 1, cz + 1);

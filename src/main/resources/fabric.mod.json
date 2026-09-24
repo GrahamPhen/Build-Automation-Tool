@@ -3,7 +3,7 @@
 	"id": "startbuild",
 	"version": "${version}",
 	"name": "StartBuild",
-	"description": "One command that starts a Baritone build of the loaded Litematica schematic, starts a Flashback recording, and stops and saves the recording a configurable delay after the last block is placed.",
+	"description": "Records a character hand-building a Litematica schematic with Flashback: it finds a natural site, terraforms it by hand, places every block with a real click, and saves the replay when done.",
 	"authors": [
 		"Graham"
 	],
@@ -21,7 +21,6 @@
 	},
 	"recommends": {
 		"flashback": "*",
-		"baritone": "*",
 		"litematica": "*"
 	}
 }

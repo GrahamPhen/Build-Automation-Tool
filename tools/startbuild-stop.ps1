@@ -2,8 +2,8 @@
     Ask a running StartBuild session to stop and SAVE.
     =================================================
     Drops the stop-flag file that StartBuild watches for (startbuild-stop in the instance's config
-    folder). The mod then does exactly what /stopbuild does: cancel the build, finish the Flashback
-    recording, save the replay, and notify.
+    folder). The 2.x builder then does what /stopbuild does: stop building, finish the Flashback
+    recording and save the take.
 
     Use this instead of killing Minecraft. Terminating the process discards the in-flight recording,
     because Flashback only turns it into a replay when the recording is finished properly.
@@ -42,7 +42,7 @@ while ((Get-Date) -lt $deadline) {
     if (-not (Test-Path $flag)) {
         Write-Output 'Flag consumed.'
         if (Test-Path $log) {
-            Get-Content $log -Tail 40 | Select-String -Pattern 'Stop requested|Recording stopped and saved|Aborted|stopping' |
+            Get-Content $log -Tail 40 | Select-String -Pattern 'Stopped:|Done:|Stop requested|stopbuild|saved' |
                 Select-Object -Last 5 | ForEach-Object { "  $($_.Line.Trim())" }
         }
         exit 0
@@ -50,5 +50,5 @@ while ((Get-Date) -lt $deadline) {
     Start-Sleep -Seconds 1
 }
 
-Write-Output "The flag is still there after 60s. Is StartBuild 1.12.0+ installed and a session running?"
+Write-Output "The flag is still there after 60s. Is a StartBuild 2.x build running in that instance?"
 exit 1

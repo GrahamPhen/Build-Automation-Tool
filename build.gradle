@@ -2,10 +2,11 @@ plugins {
 	id 'net.fabricmc.fabric-loom' version "${loom_version}"
 }
 
-// StartBuild is client-only and deliberately does NOT compile against Baritone or Flashback.
+// StartBuild is client-only and deliberately does NOT compile against Litematica or Flashback.
 // Both are reached through reflection at runtime, so this mod builds with nothing but
-// Fabric API and stays loadable even when Baritone or Flashback are absent.
+// Fabric API and stays loadable even when they are absent.
 repositories {
+	mavenCentral()
 }
 
 loom {
@@ -20,6 +21,15 @@ dependencies {
 	minecraft "com.mojang:minecraft:${project.minecraft_version}"
 	implementation "net.fabricmc:fabric-loader:${project.loader_version}"
 	implementation "net.fabricmc.fabric-api:fabric-api:${project.fabric_api_version}"
+
+	// Unit tests for the pure logic (terraform heights, flight paths): .\gradlew.bat test
+	testImplementation platform('org.junit:junit-bom:5.11.4')
+	testImplementation 'org.junit.jupiter:junit-jupiter'
+	testRuntimeOnly 'org.junit.platform:junit-platform-launcher'
+}
+
+test {
+	useJUnitPlatform()
 }
 
 processResources {

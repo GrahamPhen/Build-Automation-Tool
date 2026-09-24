@@ -65,6 +65,8 @@ final class PlacementFinder {
 
     static boolean biomeMatches(Holder<Biome> biome, List<String> words) {
         String path = biome.unwrapKey().map(k -> k.identifier().getPath()).orElse("");
+        // A build cannot stand in an ocean or a river ("frozen" used to find frozen_ocean).
+        if (path.contains("ocean") || path.contains("river")) return false;
         // "plains" must not land in snowy_plains: cold variants only when the wish asked for cold.
         boolean cold = path.contains("snowy") || path.contains("frozen") || path.contains("ice");
         if (cold && !words.contains("snowy") && !words.contains("frozen") && !words.contains("ice_spikes")) return false;
@@ -82,6 +84,22 @@ final class PlacementFinder {
     static boolean loaded(ClientLevel level, int cx, int cz) {
         LevelChunk c = level.getChunkSource().getChunk(cx, cz, false);
         return c != null && !(c instanceof EmptyLevelChunk);
+    }
+
+    /**
+     * Water whose surface is at or above the base within 3 blocks of the footprint: digging the site out
+     * would let it pour in on camera, so such a site is not offered.
+     */
+    private static boolean waterAboveBase(int[] surf, boolean[] water, int size, int cx, int cz, int sx, int sz, int ground) {
+        for (int z = cz - 3; z < cz + sz + 3; z += 2) {
+            for (int x = cx - 3; x < cx + sx + 3; x += 2) {
+                if (x >= cx && x < cx + sx && z >= cz && z < cz + sz) continue;
+                if (x < 0 || z < 0 || x >= size || z >= size) continue;
+                int i = z * size + x;
+                if (water[i] && surf[i] >= ground) return true;
+            }
+        }
+        return false;
     }
 
     /** @return up to `wanted` sites, best first. */
@@ -155,6 +173,7 @@ final class PlacementFinder {
                 int[] sorted = java.util.Arrays.copyOf(hs, n);
                 java.util.Arrays.sort(sorted);
                 int ground = sorted[n / 2];                      // base sits on the median surface
+                if (waterAboveBase(surf, water, size, cx, cz, m.sizeX, m.sizeZ, ground)) continue;
                 int overhang = 0, buried = 0;
                 for (int k = 0; k < n; k++) {
                     int d = hs[k] - ground;
@@ -174,8 +193,10 @@ final class PlacementFinder {
                         int cnt = 0;
                         for (int d = -12; d <= m.sizeX + 12; d += 6) {
                             for (int zz : new int[]{cz - 12, cz + m.sizeZ + 12}) {
-                                int i = zz * size + cx + d;
-                                if (i >= 0 && i < surf.length && surf[i] != Integer.MIN_VALUE) {
+                                int col = cx + d;
+                                if (zz < 0 || zz >= size || col < 0 || col >= size) continue;   // no row wrap-around
+                                int i = zz * size + col;
+                                if (surf[i] != Integer.MIN_VALUE) {
                                     around += surf[i];
                                     cnt++;
                                 }

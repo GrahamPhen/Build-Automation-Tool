@@ -1,55 +1,47 @@
-# Build Automation Tool
+# StartBuild — hand-built Minecraft timelapses
 
-> **Superseded.** StartBuild 2.x replaced Baritone with its own builder — see `HANDOFF.md` at the repo root.
+A client-side Fabric mod (Minecraft 26.2, Java 25) that records a character building a schematic **by
+hand** for YouTube Shorts / TikTok / Reels timelapses. It finds a natural-looking site, terraforms it on
+camera, then flies around placing every block with a real click while Flashback records. The recording
+stops shortly after the last block and the take is saved.
 
-Automates building a Minecraft schematic so it can be recorded as a YouTube Short — place the schematic,
-run one command, and the character builds the whole thing (recorded by Flashback) with no further input.
+Full architecture, file map and verification status: **[HANDOFF.md](HANDOFF.md)**. The `docs/` folder
+holds obsolete Baritone-era (1.x) notes.
 
+## Requirements
+- Prism Launcher, instance `BuildRecording` (Minecraft 26.2, Fabric Loader 0.19.5)
+- Mods: Fabric API, Litematica + MaLiLib, Flashback; optional Sodium + Iris and a shader pack
+  (Baritone is no longer needed)
+- The schematic (`.litematic` / `.schem` / `.schematic`) in the instance's `schematics` folder
+
+## Build and install
 ```
-/startbuild place haunted_80
+.\gradlew.bat build          # -> build\libs\startbuild-<version>.jar
 ```
+Then double-click the desktop icon **"Minecraft - Build Recording"** (`tools/startbuild-launch.ps1`). It
+installs/verifies the mod set and the newest StartBuild jar (only while Minecraft is closed), then starts
+the instance. Bump `version=` in `gradle.properties` on every change; the launcher installs the highest.
 
-A client-side **Fabric** mod that drives **Baritone** (block-by-block, no printer) through a **Litematica**
-placement while **Flashback** records, auto-restocks materials, recovers from real stalls, and guarantees a
-100%-complete, correctly-oriented build via a pre-pass and a verification pass.
+## In-game commands
+| Command | What it does |
+|---|---|
+| `/findsite <name> [wish]` | find the most natural spot (e.g. `near a lake`, `on a hill`, a biome), show it |
+| `/findsite next` | next candidate spot; after the last one it explores a new area |
+| `/previewbuild <name>` / `off` | preview the build at your feet / hide it |
+| `/startbuild confirm` | terraform and build where the preview/findsite put it, recorded |
+| `/startbuild place <name>` | build with the corner at your feet |
+| `/stopbuild` | stop and save the take |
+| `/buildstatus` | progress |
 
-## Quick start
-
-```powershell
-# build (requires JDK 25 + Gradle 9.7.1, included wrapper)
-./gradlew build
-
-# install + launch the Prism "BuildRecording" instance with the correct mod set
-powershell -ExecutionPolicy Bypass -File tools/startbuild-launch.ps1
+## Hands-free runs
 ```
-
-Then in-game:
-
+powershell -ExecutionPolicy Bypass -File tools\startbuild-launch.ps1 -Build haunted_80 -Wish "near a lake"
 ```
-/startbuild place <name.litematic>     # the one command
-/buildstatus                          # state, footprint, materials, config
-/stopbuild                            # clean stop (keeps the recording)
-/buildsite [radius]                   # preview candidate sites (read-only)
-/buildsel full|layers N|corner N|off  # auto Baritone selection
-/buildprep                            # apply Baritone video settings
-```
+The launcher writes `config\startbuild-autorun` (`<name> [wish]`) and opens the world `-World` (default
+`Video Building`). The mod then finds a site, terraforms, builds and saves with no typing.
+- `tools\startbuild-check.ps1` — what the current run is doing, from the game log
+- `tools\startbuild-stop.ps1` — ask a running build to stop and save (never kill the game mid-take)
+- `node tools/cottage/verify-build.mjs <schematic> <regionDir> <ox> <oy> <oz>` — check a finished build
 
-## Reading the code
-
-Everything important is documented in **[HANDOFF.md](./HANDOFF.md)** — the file map, the architecture, the
-build flow, the configuration schema, the `.litematic` binary format, the Baritone internals that matter,
-and the full bug history with signatures and fixes so nothing has to be re-derived.
-
-The offline diagnostic tools are under `tools/cottage/` (run with Node). The single most useful one:
-
-```powershell
-node tools/cottage/verify-build.mjs <schematic.litematic> <regionDir> <originX> <originY> <originZ>
-```
-
-This diffs the live world against the schematic and answers "how complete is the build, and what is
-missing" with measured numbers instead of inference.
-
-## Environment
-
-Minecraft 26.2 · Fabric Loader 0.19.5 · Fabric API 0.161.0 · Java 25 · Gradle 9.7.1 · Loom 1.18.2 ·
-Litematica 0.28.8 · Baritone 1.19.0 (api-fabric) · Flashback 0.43.4. Full pinned matrix in `HANDOFF.md` §1.
+Game log (source of truth):
+`%APPDATA%\PrismLauncher\instances\BuildRecording\minecraft\logs\latest.log`.

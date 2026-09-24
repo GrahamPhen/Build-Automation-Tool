@@ -24,6 +24,8 @@ Thumbs.db
 # Generated schematic tool output
 tools/cottage/out/
 examples/*.png
+tests/fixtures/_catalog/
+tests/staged/
 
 # Secrets
 tools/picture2schem/anthropic-key.txt
