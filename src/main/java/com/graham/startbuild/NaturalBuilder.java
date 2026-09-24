@@ -111,6 +111,9 @@ final class NaturalBuilder {
     private List<Vec3> route = new ArrayList<>();
     private Vec3 lastPos;
     private int stuckTicks;
+    private double bestWaypointDist = Double.MAX_VALUE;
+    /** Re-plans for the current action; after 3 it is set aside at once instead of waiting out the timeout. */
+    private int replans;
     private int nextHotbar;
     private int highestBuiltY;
 
@@ -237,6 +240,10 @@ final class NaturalBuilder {
                     cooldown = 2;
                     return;
                 }
+                replans = 0;
+                stuckTicks = 0;
+                bestWaypointDist = Double.MAX_VALUE;
+                moveBudget = moveBudgetFor(player.position());
                 enter(Phase.MOVE);
             }
             case MOVE -> {
@@ -247,14 +254,18 @@ final class NaturalBuilder {
                 if (fly(player, level)) {
                     enter(Phase.AIM);
                 } else if (replan) {
-                    // Bumped into something the plan did not expect (a block placed since): plan again.
+                    // Not getting closer (a block placed since, or sliding along a wall): plan again - and
+                    // after three tries, set this one aside at once rather than grinding on.
                     replan = false;
-                    if (!routeTo(mc, player, level)) {
+                    if (++replans > 3) {
+                        park(current, "could not fly into position (stuck)");
+                        enter(Phase.PLAN);
+                    } else if (!routeTo(mc, player, level)) {
                         park(current, "no way to get there");
                         enter(Phase.PLAN);
                     }
-                } else if (phaseTicks > 20 * 20) {
-                    // Could not get there in 20 s: give up on this one for now, try something else.
+                } else if (phaseTicks > moveBudget) {
+                    // Far longer than the trip should take: give up on this one for now, try something else.
                     park(current, "could not fly into position");
                     enter(Phase.PLAN);
                 }
@@ -927,6 +938,19 @@ final class NaturalBuilder {
         player.setDeltaMovement(0, 0, 0);
     }
 
+    private int moveBudget = 400;
+
+    /** Ticks a trip along `route` may take: its length at working speed, plus 5 s; at most 20 s. */
+    private int moveBudgetFor(Vec3 from) {
+        double len = 0;
+        Vec3 at = from;
+        for (Vec3 p : route) {
+            len += at.distanceTo(p);
+            at = p;
+        }
+        return (int) Math.min(400, 100 + len / FLY_SPEED);
+    }
+
     /** Fly along `route`. @return true once at the end of it. */
     private boolean fly(LocalPlayer player, ClientLevel level) {
         if (route.isEmpty()) {
@@ -939,6 +963,7 @@ final class NaturalBuilder {
         double dist = delta.length();
         if (dist < 0.25) {
             route.remove(0);
+            bestWaypointDist = Double.MAX_VALUE;
             if (route.isEmpty()) {
                 hover(player);
                 return true;
@@ -954,14 +979,15 @@ final class NaturalBuilder {
             float[] rot = lookAngles(player.getEyePosition(), wp.add(0, player.getEyeHeight(), 0));
             turnTowards(player, rot[0], Mth.clamp(rot[1], -20f, 45f));
         }
-        // Stuck against something the route did not know about: ask MOVE to plan again.
-        if (lastPos != null && lastPos.distanceTo(pos) < 0.02) {
-            if (++stuckTicks > 15) {
-                replan = true;
-                stuckTicks = 0;
-            }
-        } else {
+        // Stuck: not getting any closer to the waypoint for 1.5 s - pinned in place, or sliding along a wall or
+        // corner (still moving, never arriving; that used to grind on for the full MOVE timeout). Plan again.
+        if (dist < bestWaypointDist - 0.1) {
+            bestWaypointDist = dist;
             stuckTicks = 0;
+        } else if (++stuckTicks > 30) {
+            replan = true;
+            stuckTicks = 0;
+            bestWaypointDist = Double.MAX_VALUE;
         }
         lastPos = pos;
         return false;
