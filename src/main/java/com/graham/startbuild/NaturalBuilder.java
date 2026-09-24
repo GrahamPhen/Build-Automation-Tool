@@ -17,7 +17,9 @@ import net.minecraft.world.item.context.BlockPlaceContext;
 import net.minecraft.world.level.block.BaseEntityBlock;
 import net.minecraft.world.level.block.Block;
 import net.minecraft.world.level.block.Blocks;
+import net.minecraft.world.level.block.CropBlock;
 import net.minecraft.world.level.block.CrossCollisionBlock;
+import net.minecraft.world.level.block.FlowerPotBlock;
 import net.minecraft.world.level.block.FallingBlock;
 import net.minecraft.world.level.block.HugeMushroomBlock;
 import net.minecraft.world.level.block.PipeBlock;
@@ -107,7 +109,7 @@ final class NaturalBuilder {
 
     private enum Phase { PLAN, MOVE, AIM, VERIFY }
 
-    private enum Kind { PLACE, BREAK }
+    private enum Kind { PLACE, BREAK, USE, USE_AIR }
 
     private static final class Action {
         final Kind kind;
@@ -357,8 +359,9 @@ final class NaturalBuilder {
                         markDone(i);
                         continue;
                     }
-                    boolean needsBreak = !have.isAir() && !have.canBeReplaced();
-                    if (!needsBreak && !hasSolidNeighbour(level, p)) continue;
+                    boolean special = specialUse(have, want) != null;
+                    boolean needsBreak = !special && !have.isAir() && !have.canBeReplaced();
+                    if (!special && !needsBreak && !hasSolidNeighbour(level, p)) continue;
                     double d = eye.distanceTo(Vec3.atCenterOf(p));
                     cands.add(new long[]{(long) (d * 1000), i});
                 }
@@ -376,7 +379,11 @@ final class NaturalBuilder {
             BlockPos p = world(x, y, z);
             BlockState have = level.getBlockState(p);
             Action a;
-            if (!have.isAir() && !have.canBeReplaced()) {
+            Item use = specialUse(have, model.states[i]);
+            if (use != null) {
+                a = new Action(isWater(model.states[i]) ? Kind.USE_AIR : Kind.USE, p, model.states[i], false);
+                a.item = use;
+            } else if (!have.isAir() && !have.canBeReplaced()) {
                 a = new Action(Kind.BREAK, p, model.states[i], false);
             } else {
                 a = new Action(Kind.PLACE, p, model.states[i], false);
@@ -411,8 +418,9 @@ final class NaturalBuilder {
             if (++tried > 25) break;
             BlockPos t = worldOf(i);
             BlockState want = model.states[i];
-            if (want.getBlock() instanceof FallingBlock) {
-                continue;       // sand needs real support underneath; a temporary block would not stay
+            if (want.getBlock() instanceof FallingBlock || !want.isCollisionShapeFullBlock(level, t)
+                    || isWater(want)) {
+                continue;       // needs real ground/support (sand, plants, water) - a temporary block cannot help
             }
             for (Direction d : preferredDirections(want)) {
                 BlockPos n = t.relative(d);
@@ -439,8 +447,12 @@ final class NaturalBuilder {
                     Action a = queue.pollFirst();
                     if (prepare(mc, player, level, a)) return a;
                 }
+                // The plan could not start: park this cell so it is not re-planned every tick.
+                queue.clear();
+                status[i] = 3;
                 return null;
             }
+            status[i] = 3;      // no scaffold possible for this one right now
         }
         return null;
     }
@@ -510,11 +522,24 @@ final class NaturalBuilder {
             return a.stand != null;
         }
 
+        if (a.kind == Kind.USE || a.kind == Kind.USE_AIR) {
+            boolean fromBelow = a.kind == Kind.USE_AIR || a.want.getBlock() == Blocks.NETHER_PORTAL;
+            BlockPos on = fromBelow ? a.target.below() : a.target;
+            if (fromBelow && !isSolid(level, on)) return false;
+            a.against = on;
+            a.face = Direction.UP;
+            a.hit = Vec3.atCenterOf(on).add(0, 0.5, 0);
+            a.stand = standFor(level, player, a.hit, a.target);
+            return a.stand != null;
+        }
+
         // PLACE
         if (!level.getBlockState(a.target).canBeReplaced()) return false;
         if (a.want != null) {
             if (a.want.getBlock() instanceof FallingBlock && !isSolid(level, a.target.below())) return false;
-            Item item = a.want.getBlock().asItem();
+            // Plants and the like wait for their ground (farmland, grass) to exist.
+            if (!placeState(a.want).canSurvive(level, a.target)) return false;
+            Item item = placeItem(a.want);
             if (item == Items.AIR) {
                 impossible(a, "no item for " + name(a.want));
                 return false;
@@ -579,7 +604,7 @@ final class NaturalBuilder {
      */
     private boolean simulate(LocalPlayer player, ClientLevel level, BlockPos target, BlockPos against,
                              Direction face, Vec3 hit, Vec3 stand, BlockState want) {
-        Item item = want.getBlock().asItem();
+        Item item = placeItem(want);
         if (!(item instanceof BlockItem blockItem)) return false;
         float oy = player.getYRot(), ox = player.getXRot();
         try {
@@ -590,6 +615,7 @@ final class NaturalBuilder {
             BlockPlaceContext ctx = new BlockPlaceContext(player, InteractionHand.MAIN_HAND, new ItemStack(item),
                     new BlockHitResult(hit, face, against, false));
             if (!ctx.getClickedPos().equals(target) || !ctx.canPlace()) return false;
+            want = placeState(want);
             BlockState result = blockItem.getBlock().getStateForPlacement(ctx);
             return result != null && matches(result, want);
         } catch (Throwable t) {
@@ -658,6 +684,11 @@ final class NaturalBuilder {
             impossible(a, "could not pick " + a.item);
             return;
         }
+        if (a.kind == Kind.USE_AIR) {
+            mc.gameMode.useItem(player, InteractionHand.MAIN_HAND);
+            player.swing(InteractionHand.MAIN_HAND);
+            return;
+        }
         BlockHitResult hit = new BlockHitResult(a.hit, a.face, a.against, false);
         InteractionResult r = mc.gameMode.useItemOn(player, InteractionHand.MAIN_HAND, hit);
         if (r.consumesAction()) {
@@ -682,6 +713,11 @@ final class NaturalBuilder {
             return;
         }
         int i = indexOf(a.target);
+        if (!matches(have, a.want) && a.kind == Kind.PLACE && !placeState(a.want).equals(a.want)
+                && matches(have, placeState(a.want))) {
+            progress();         // first step of a two-step block (dirt before farmland, pot before plant)
+            return;
+        }
         if (matches(have, a.want)) {
             placed++;
             markDone(i);
@@ -695,7 +731,7 @@ final class NaturalBuilder {
             lastProblem = "placed " + have + " but wanted " + a.want;
             StartBuildMod.LOGGER.info("[StartBuild] {} at {} (attempt {})", lastProblem, a.target, n);
         }
-        if (n >= MAX_ATTEMPTS && i >= 0) {
+        if (n >= ((a.kind == Kind.PLACE) ? MAX_ATTEMPTS : 12) && i >= 0) {
             status[i] = 3;     // park; retried in a later pass
         }
     }
@@ -868,6 +904,7 @@ final class NaturalBuilder {
     private boolean stillValid(ClientLevel level, Action a) {
         if (a == null) return false;
         if (a.kind == Kind.BREAK) return !level.getBlockState(a.target).isAir();
+        if (a.kind == Kind.USE || a.kind == Kind.USE_AIR) return !matches(level.getBlockState(a.target), a.want);
         return level.getBlockState(a.target).canBeReplaced() && isClickable(level.getBlockState(a.against));
     }
 
@@ -922,10 +959,48 @@ final class NaturalBuilder {
             if (connecting && (n.equals("north") || n.equals("south") || n.equals("east") || n.equals("west")
                     || n.equals("up") || n.equals("down"))) continue;
             if (b instanceof StairBlock && n.equals("shape")) continue;
-            if (n.equals("waterlogged")) continue;
+            if (n.equals("waterlogged") || n.equals("moisture")) continue;
             return false;
         }
         return true;
+    }
+
+    // ------------------------------------------------------------------ two-step blocks
+
+    private static boolean isWater(BlockState s) {
+        return s.getBlock() == Blocks.WATER;
+    }
+
+    /** What the first click puts down for `want` (dirt before farmland, an empty pot before a potted plant). */
+    static BlockState placeState(BlockState want) {
+        Block b = want.getBlock();
+        if (b == Blocks.FARMLAND || b == Blocks.DIRT_PATH) return Blocks.DIRT.defaultBlockState();
+        if (b instanceof FlowerPotBlock && b != Blocks.FLOWER_POT) return Blocks.FLOWER_POT.defaultBlockState();
+        if (b instanceof CropBlock) return b.defaultBlockState();
+        return want;
+    }
+
+    private static Item placeItem(BlockState want) {
+        return placeState(want).getBlock().asItem();
+    }
+
+    /**
+     * The item to USE on a cell that already holds the first step: hoe on dirt (farmland), shovel on dirt
+     * (path), the plant on an empty pot, bone meal on a young crop, a bucket for water. Null otherwise.
+     */
+    private static Item specialUse(BlockState have, BlockState want) {
+        Block wb = want.getBlock();
+        Block hb = have.getBlock();
+        if (isWater(want)) return (have.isAir() || have.canBeReplaced()) && !isWater(have) ? Items.WATER_BUCKET : null;
+        if (wb == Blocks.NETHER_PORTAL) return have.isAir() ? Items.FLINT_AND_STEEL : null;   // light the frame
+        if ((hb == Blocks.DIRT || hb == Blocks.GRASS_BLOCK) && wb == Blocks.FARMLAND) return Items.WOODEN_HOE;
+        if ((hb == Blocks.DIRT || hb == Blocks.GRASS_BLOCK) && wb == Blocks.DIRT_PATH) return Items.WOODEN_SHOVEL;
+        if (hb == Blocks.FLOWER_POT && wb instanceof FlowerPotBlock pot && wb != Blocks.FLOWER_POT) {
+            Item plant = pot.getPotted().asItem();
+            return (plant == Items.AIR) ? null : plant;
+        }
+        if (hb == wb && wb instanceof CropBlock && !have.equals(want)) return Items.BONE_MEAL;
+        return null;
     }
 
     /** The upper half of a door/tall plant is placed together with its lower half. */
