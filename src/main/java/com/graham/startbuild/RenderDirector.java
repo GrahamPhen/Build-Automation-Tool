@@ -235,9 +235,34 @@ final class RenderDirector {
         return true;
     }
 
+    private static Path finalOutput, pendingMusic;
+    private static String encoderUsed = "libx264";
+    private static Thread mixing;
+
     private static void tickExporting() throws Exception {
         Class<?> fb = Class.forName("com.moulberry.flashback.Flashback");
         if (fb.getField("EXPORT_JOB").get(null) != null || ++waitTicks < 40) return;
+        if (pendingMusic != null && mixing == null) {
+            // Lay the music under the silent render, off the game thread.
+            Path video = output, music = pendingMusic, out = finalOutput;
+            String enc = encoderUsed;
+            StartBuildMod.LOGGER.info("[StartBuild] render: adding music {} to {}", music.getFileName(), out.getFileName());
+            mixing = new Thread(() -> {
+                long t0 = System.currentTimeMillis();
+                String err = MusicMixer.mix(video, music, out, enc, 16_000_000);
+                StartBuildMod.LOGGER.info("[StartBuild] render: music {} ({} s)", err == null ? "added" : "FAILED - " + err,
+                        (System.currentTimeMillis() - t0) / 1000);
+            }, "startbuild-music");
+            mixing.setDaemon(true);
+            mixing.start();
+            return;
+        }
+        if (mixing != null) {
+            if (mixing.isAlive()) return;
+            mixing = null;
+            pendingMusic = null;
+            output = finalOutput;
+        }
         StartBuildMod.LOGGER.info("[StartBuild] render: finished - {} ({} MB)", output,
                 output != null && Files.exists(output) ? Files.size(output) / (1024 * 1024) : 0);
         if (!jobs.isEmpty()) {                                         // next video from the same replay
@@ -415,16 +440,13 @@ final class RenderDirector {
         day.put(0, dayKf.newInstance(time));
         day.put(end, dayKf.newInstance(time));
 
-        // Soundtrack: an audio file (config/startbuild-music/<music>.ogg) from the first frame.
-        Object audioTrack = null;
+        // Soundtrack: an audio file (config/startbuild-music/<music>.ogg), laid under the SILENT export by
+        // MusicMixer at normal speed. (Flashback's own audio track plays at the replay's speed - under an
+        // 80x timelapse that was a garbled blip.)
         Path music = null;
         if (job.containsKey("music")) {
             music = FabricLoader.getInstance().getConfigDir().resolve("startbuild-music").resolve(job.get("music") + ".ogg");
-            if (Files.isRegularFile(music)) {
-                audioTrack = newTrack.newInstance(Class.forName("com.moulberry.flashback.keyframe.types.AudioKeyframeType").getField("INSTANCE").get(null));
-                TreeMap<Integer, Object> a = cast(byTick.get(audioTrack));
-                a.put(0, Class.forName("com.moulberry.flashback.keyframe.impl.AudioKeyframe").getConstructor(Path.class).newInstance(music));
-            } else {
+            if (!Files.isRegularFile(music)) {
                 StartBuildMod.LOGGER.warn("[StartBuild] render: no music file {}", music);
                 music = null;
             }
@@ -440,7 +462,6 @@ final class RenderDirector {
             tracks.add(camTrack);
             tracks.add(lapseTrack);
             tracks.add(dayTrack);
-            if (audioTrack != null) tracks.add(audioTrack);
         } finally {
             es.getClass().getMethod("release", long.class).invoke(es, stamp);
         }
@@ -454,7 +475,10 @@ final class RenderDirector {
         Class<?> fb = Class.forName("com.moulberry.flashback.Flashback");
         Path folder = ((Path) fb.getMethod("getReplayFolder").invoke(null)).resolveSibling("exports");
         Files.createDirectories(folder);
-        output = folder.resolve(job.getOrDefault("output", "build-short-" + style + ".mp4"));
+        finalOutput = folder.resolve(job.getOrDefault("output", "build-short-" + style + ".mp4"));
+        pendingMusic = music;
+        output = music == null ? finalOutput
+                : folder.resolve(finalOutput.getFileName().toString().replace(".mp4", "-silent.mp4"));
         Files.deleteIfExists(output);
         Object h264 = enumValue("com.moulberry.flashback.combo_options.VideoCodec", "H264");
         String[] encoders = (String[]) h264.getClass().getMethod("getEncoders").invoke(h264);
@@ -471,9 +495,9 @@ final class RenderDirector {
                 enumValue("com.moulberry.flashback.combo_options.ExportProjection", "PERSPECTIVE"), 1f,
                 30.0, false, false,
                 enumValue("com.moulberry.flashback.combo_options.VideoContainer", "MP4"), h264,
-                encoders.length > 0 ? encoders[0] : "libx264",
-                24_000_000, false, false, true, music != null,
-                music != null ? enumValue("com.moulberry.flashback.combo_options.AudioCodec", "AAC") : null, output, "%04d");
+                encoderUsed = encoders.length > 0 ? encoders[0] : "libx264",
+                24_000_000, false, false, true, false,
+                null, output, "%04d");
         Class<?> utils = Class.forName("com.moulberry.flashback.Utils");
         Field seq = utils.getField("exportSequenceCount");
         seq.setInt(null, seq.getInt(null) + 1);
