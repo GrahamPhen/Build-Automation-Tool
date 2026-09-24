@@ -350,6 +350,23 @@ final class NaturalSession {
         return start(name, at, false);     // start() clears the ghost so it never appears on camera
     }
 
+    /** /fill in horizontal slabs that each stay under vanilla's 32,768-block limit. @return commands sent. */
+    private static long fillSliced(int x1, int y1, int z1, int x2, int y2, int z2, String what) {
+        int layer = (x2 - x1 + 1) * (z2 - z1 + 1);
+        int per = Math.max(1, 32768 / Math.max(1, layer));
+        long cmds = 0;
+        if (per >= 1 && layer <= 32768) {
+            for (int y = y1; y <= y2; y += per) {
+                StartBuildMod.runServerCommand("fill " + x1 + " " + y + " " + z1 + " " + x2 + " "
+                        + Math.min(y2, y + per - 1) + " " + z2 + " " + what);
+                cmds++;
+            }
+            return cmds;
+        }
+        int mid = (x1 + x2) / 2;          // footprint wider than one layer allows: split it
+        return fillSliced(x1, y1, z1, mid, y2, z2, what) + fillSliced(mid + 1, y1, z1, x2, y2, z2, what);
+    }
+
     // ================================================================== ticking
 
     static void tick() {
@@ -418,6 +435,24 @@ final class NaturalSession {
         }
         if (waitTicks < 40) {
             return;
+        }
+        // Site prep BEFORE the camera rolls: cut away terrain inside the build's volume (a hillside, trees)
+        // and fill dips just around it, so the character only ever builds - never digs - on camera.
+        if (config.prepTerrain) {
+            TerrainPrep.Result prep = TerrainPrep.level(level, origin, model.sizeX, model.sizeZ, origin.getY(),
+                    "minecraft:grass_block", "minecraft:dirt", 2);
+            StartBuildMod.LOGGER.info("[StartBuild] site prep: {}", prep.describe());
+            // Whole trees near the build go (not just the leaves inside it), then the build volume is emptied.
+            int m = 6, top = origin.getY() + model.sizeY + 12;
+            int x1 = origin.getX(), z1 = origin.getZ(), x2 = x1 + model.sizeX - 1, z2 = z1 + model.sizeZ - 1;
+            long n = 0;
+            n += fillSliced(x1 - m, origin.getY(), z1 - m, x2 + m, top, z2 + m, "air replace #minecraft:leaves");
+            n += fillSliced(x1 - m, origin.getY(), z1 - m, x2 + m, top, z2 + m, "air replace #minecraft:logs");
+            n += fillSliced(x1, origin.getY(), z1, x2, origin.getY() + model.sizeY, z2, "air");
+            StartBuildMod.LOGGER.info("[StartBuild] site cleared: {} fill command(s)", n);
+            waitTicks = 0;
+            config.prepTerrain = false;          // once per run (config is reloaded at the next start)
+            return;                              // let the world settle a moment before recording
         }
         recordingByUs = false;
         if (config.startRecording && FlashbackBridge.available()) {

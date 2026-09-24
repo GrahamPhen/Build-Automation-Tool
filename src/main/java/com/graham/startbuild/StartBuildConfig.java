@@ -235,6 +235,9 @@ final class StartBuildConfig {
     public Integer lastAutoOriginX = null;
     public Integer lastAutoOriginZ = null;
 
+    /** Before recording: level the site (cut hills/trees inside the footprint, fill dips at its edge). */
+    public boolean prepTerrain = true;
+
     /** Before recording: daylight and clear weather, so the replay is watchable. */
     public boolean videoDaylight = true;
 
