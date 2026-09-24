@@ -110,10 +110,7 @@ final class NaturalSession {
         if (mc.gameMode.getPlayerMode() != GameType.CREATIVE) {
             StartBuildMod.runServerCommand("gamemode creative");
         }
-        if (config.videoDaylight) {
-            StartBuildMod.runServerCommand("time set noon");
-            StartBuildMod.runServerCommand("weather clear");
-        }
+        applyWorldSettings();
 
         if (freshSite) {
             int x, z;
@@ -146,6 +143,27 @@ final class NaturalSession {
                 name, model.sizeX, model.sizeY, model.sizeZ, model.solidCount);
         StartBuildMod.chat("Preparing " + name + " (" + model.solidCount + " blocks)...");
         return 1;
+    }
+
+    /**
+     * Makes whatever world this runs in camera-ready, every time: no chat echo from our own commands, no
+     * mobs, fixed noon and clear sky, nothing growing/spreading/burning on its own, and peaceful.
+     */
+    private static void applyWorldSettings() {
+        // First, so none of the following commands prints anything on camera.
+        StartBuildMod.runServerCommand("gamerule send_command_feedback false");
+        String[] off = {"command_block_output", "advance_time", "advance_weather", "spawn_monsters",
+                "spawn_phantoms", "spawn_patrols", "spawn_wandering_traders", "mob_griefing", "spread_vines"};
+        for (String rule : off) {
+            StartBuildMod.runServerCommand("gamerule " + rule + " false");
+        }
+        StartBuildMod.runServerCommand("gamerule fire_spread_radius_around_player 0");
+        StartBuildMod.runServerCommand("gamerule random_tick_speed 0");
+        StartBuildMod.runServerCommand("difficulty peaceful");
+        if (config.videoDaylight) {
+            StartBuildMod.runServerCommand("time set noon");
+            StartBuildMod.runServerCommand("weather clear");
+        }
     }
 
     // ================================================================== ticking
