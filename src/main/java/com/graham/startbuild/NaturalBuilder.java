@@ -377,7 +377,15 @@ final class NaturalBuilder {
         }
         // No temporary block may be left in the finished take: retry any that were set aside.
         scaffolds.removeIf(s -> level.getBlockState(s).isAir());
-        if (!scaffolds.isEmpty() && scaffoldCleanups++ < 5) {
+        // A temporary block walled in on every side by the finished build can never be seen - on camera or
+        // by the character - so it is left rather than retried (the first full take had 14 like that).
+        scaffolds.removeIf(s -> {
+            for (Direction dir : Direction.values()) {
+                if (level.getBlockState(s.relative(dir)).canBeReplaced()) return false;
+            }
+            return true;
+        });
+        if (!scaffolds.isEmpty() && scaffoldCleanups++ < 12) {
             scaffoldRetryAt.clear();
             return null;                    // hover a tick; step 2 above picks them up next time
         }

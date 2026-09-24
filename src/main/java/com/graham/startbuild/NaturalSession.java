@@ -82,7 +82,34 @@ final class NaturalSession {
             StartBuildMod.chat("§cJoin a world first.");
             return 0;
         }
-        return start(name, mc.player.blockPosition());
+        SchematicModel m = readModel(mc, name);
+        BlockPos corner = mc.player.blockPosition();
+        return start(name, m == null ? corner : onGround(mc.level, corner, m));
+    }
+
+    private static SchematicModel readModel(Minecraft mc, String rawName) {
+        String name = schematicFileName(rawName);
+        File file = new File(new File(mc.gameDirectory, "schematics"), name);
+        return file.isFile() ? SchematicModel.read(LitematicaBridge.loadSchematic(file.toPath().getParent(), name)) : null;
+    }
+
+    /**
+     * The corner at the height the build must stand at: one above the MEDIAN natural ground under the
+     * columns it actually stands on - so a build started while flying (or standing on a tree or a rock)
+     * sits on the land instead of floating or sinking. The terraforming then evens out the rest.
+     */
+    static BlockPos onGround(ClientLevel level, BlockPos corner, SchematicModel m) {
+        List<Integer> hs = new ArrayList<>();
+        for (int z = 0; z < m.sizeZ; z += 2) {
+            for (int x = 0; x < m.sizeX; x += 2) {
+                boolean stands = !m.at(x, 0, z).isAir() || (m.sizeY > 1 && !m.at(x, 1, z).isAir());
+                if (!stands || !PlacementFinder.loaded(level, (corner.getX() + x) >> 4, (corner.getZ() + z) >> 4)) continue;
+                hs.add(Terraformer.groundAt(level, corner.getX() + x, corner.getZ() + z));
+            }
+        }
+        if (hs.isEmpty()) return corner;
+        java.util.Collections.sort(hs);
+        return new BlockPos(corner.getX(), hs.get(hs.size() / 2) + 1, corner.getZ());
     }
 
     /**
@@ -230,7 +257,7 @@ final class NaturalSession {
             StartBuildMod.chat("§cCould not read " + name + ".");
             return 0;
         }
-        BlockPos corner = mc.player.blockPosition();
+        BlockPos corner = onGround(mc.level, mc.player.blockPosition(), m);
         int[] placed = LitematicaBridge.place(schematic, corner, "preview " + name, true);
         if (placed[0] <= 0) {
             StartBuildMod.chat("§cLitematica could not show the preview.");
@@ -987,25 +1014,22 @@ final class NaturalSession {
     }
 
     /** A Windows/desktop tray notification, off the game thread; silently skipped where unsupported. */
+    /**
+     * A Windows notification balloon, shown by a separate hidden PowerShell process: Minecraft runs Java
+     * headless, so java.awt's tray cannot be used from inside the game. Silently skipped off Windows.
+     */
     private static void notifyDesktop(String text) {
-        Thread t = new Thread(() -> {
-            try {
-                if (java.awt.GraphicsEnvironment.isHeadless() || !java.awt.SystemTray.isSupported()) {
-                    StartBuildMod.LOGGER.info("[StartBuild] desktop notifications are not available here");
-                    return;
-                }
-                java.awt.SystemTray tray = java.awt.SystemTray.getSystemTray();
-                java.awt.image.BufferedImage img = new java.awt.image.BufferedImage(16, 16, java.awt.image.BufferedImage.TYPE_INT_ARGB);
-                java.awt.TrayIcon icon = new java.awt.TrayIcon(img, "StartBuild");
-                tray.add(icon);
-                icon.displayMessage("StartBuild", text, java.awt.TrayIcon.MessageType.INFO);
-                Thread.sleep(10_000);
-                tray.remove(icon);
-            } catch (Throwable e) {
-                StartBuildMod.LOGGER.info("[StartBuild] desktop notification failed: {}", Reflect.describe(e));
-            }
-        }, "startbuild-notify");
-        t.setDaemon(true);
-        t.start();
+        if (!System.getProperty("os.name", "").toLowerCase().contains("win")) return;
+        String safe = text.replace("'", "''").replace("\r", " ").replace("\n", " ");
+        String script = "Add-Type -AssemblyName System.Windows.Forms; Add-Type -AssemblyName System.Drawing; "
+                + "$n = New-Object System.Windows.Forms.NotifyIcon; $n.Icon = [System.Drawing.SystemIcons]::Information; "
+                + "$n.Visible = $true; $n.ShowBalloonTip(15000, 'StartBuild', '" + safe + "', 'Info'); "
+                + "Start-Sleep -Seconds 16; $n.Dispose()";
+        try {
+            new ProcessBuilder("powershell.exe", "-NoProfile", "-WindowStyle", "Hidden", "-Command", script)
+                    .redirectErrorStream(true).redirectOutput(ProcessBuilder.Redirect.DISCARD).start();
+        } catch (Throwable e) {
+            StartBuildMod.LOGGER.info("[StartBuild] desktop notification failed: {}", Reflect.describe(e));
+        }
     }
 }

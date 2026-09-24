@@ -1,6 +1,6 @@
 # HANDOFF — Build Automation Tool (StartBuild 2.9.x)
 
-> Read this first. Last updated 2026-09-24, mod version **2.9.0**, branch `natural-builder-2.0`.
+> Read this first. Last updated 2026-09-24, mod version **2.9.3**, branch `natural-builder-2.0`.
 > The Baritone-era docs (1.x, why Baritone could not do this) are archived in `docs/`.
 
 ## 1. What it is
@@ -140,7 +140,18 @@ Proven live: 2.0 built haunted_80 past layer 1 (where every Baritone version sta
 the Halloween 80 build ran at ~110 blocks/min; a 2.5.1 `/findsite` site near (-656, 85, -212) was built on
 to 10,041/15,248 blocks, then stalled shut in under its roof (fixed in 2.6.1: A* + dig-out + watchdog).
 
-Not yet run in game (compiled + unit-tested only): everything from 2.6.0 on — on-camera terraforming
+**First complete take (2026-09-24, 2.9.0):** whimsical_halloween_80 at (-1281, 63, -285), snowy taiga lake
+shore: 20 trees felled whole, 6,100 dug, 1,385 filled/replanted (37 min), then all 15,249 blocks placed by
+hand (94 min, ~240/min low, ~145/min high), 131 min total, recording saved; no stalls/watchdog/errors,
+1 dig-out (2 blocks, rebuilt). Measured from the save (`site-relief.mjs` + a ring check): ground 2-3 blocks
+out from the build is within 1 block of its base for 98-99% of columns, easing up to the hill further out.
+Loose ends found and fixed since: 20 temporary blocks left (14 walled in - now skipped, 6 visible - more
+cleanup passes), 1 sideways jungle_log not placed, 5 leaves inside a kept canopy, several 20 s
+"could not fly" waits (2.9.1), bounding box over a frozen lake (2.9.2: plain ice = water), desktop
+notification never shown (2.9.3: PowerShell balloon), /startbuild place while flying floated (2.9.3: base
+snapped to the median ground).
+
+Not yet run in game (compiled + unit-tested only): 2.9.1-2.9.3 fixes; earlier items still unobserved live: — on-camera terraforming
 (tree by tree), A* routing / dig-out, watchdog, hands-free auto, discard of empty takes, stop file,
 line-of-sight placement. Watch the log for `terraform plan:`, `felling tree`, `digging`/`filling done`,
 `shut in:`, `watchdog:`, `hands-free:`. Also unverified: portal lighting, water bucket placement.
