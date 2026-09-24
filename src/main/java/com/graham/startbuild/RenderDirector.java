@@ -35,7 +35,19 @@ import java.util.TreeMap;
  */
 final class RenderDirector {
 
-    private enum State { IDLE, OPENING, EXPORTING }
+    private enum State { IDLE, OPENING, PROBING, EXPORTING }
+
+    /** Where the builder was at the close-up moments (replay tick -> feet position), found by scrubbing. */
+    private static final Map<Integer, Vec3> builderAt = new TreeMap<>();
+    private static final Deque<Integer> probes = new ArrayDeque<>();
+    private static Map<net.minecraft.sounds.SoundSource, Double> savedVolumes;
+    /** Fractions of the build period where the edits cut to a close shot of the character. */
+    private static final double[] CLOSEUPS = {0.2, 0.4, 0.55};
+    /**
+     * Replay ticks each close shot covers: 1.5 s of the take, shown at real speed - the builder flies up to a
+     * block a tick between placements, so a longer window loses them from the frame.
+     */
+    private static final int CLOSEUP_TICKS = 30;
 
     private static State state = State.IDLE;
     private static final Deque<Map<String, String>> jobs = new ArrayDeque<>();
@@ -59,11 +71,13 @@ final class RenderDirector {
             switch (state) {
                 case IDLE -> checkFlag();
                 case OPENING -> tickOpening();
+                case PROBING -> tickProbing();
                 case EXPORTING -> tickExporting();
             }
         } catch (Throwable t) {
             StartBuildMod.LOGGER.error("[StartBuild] render: failed", t);
             jobs.clear();
+            muteGameSounds(false);
             state = State.IDLE;
         }
     }
@@ -111,10 +125,114 @@ final class RenderDirector {
         }
         if (++waitTicks < 20 * 8) return;                             // let the replay settle and load chunks
         totalTicks = (int) server.getClass().getMethod("getTotalReplayTicks").invoke(server);
-        job = jobs.poll();
-        startExport();
-        state = State.EXPORTING;
+        // Scrub to each close-up moment first, to see where the builder actually is then.
+        job = jobs.peek();
+        int T = (int) Math.min(totalTicks, num("terraformEnd", totalTicks / 4.0));
+        int B = (int) Math.min(totalTicks, num("buildEnd", totalTicks - 600));
+        builderAt.clear();
+        closeupEye.clear();
+        probes.clear();
+        for (double f : CLOSEUPS) probes.add(T + (int) ((B - T) * f));
         waitTicks = 0;
+        state = State.PROBING;
+    }
+
+    /** Seek to each probe tick, let the replay catch up, and note where the recorded builder stands. */
+    private static void tickProbing() throws Exception {
+        Class<?> fb = Class.forName("com.moulberry.flashback.Flashback");
+        Object server = fb.getMethod("getReplayServer").invoke(null);
+        if (probes.isEmpty()) {
+            StartBuildMod.LOGGER.info("[StartBuild] render: builder positions {}", builderAt);
+            muteGameSounds(true);
+            job = jobs.poll();
+            startExport();
+            state = State.EXPORTING;
+            waitTicks = 0;
+            return;
+        }
+        int t = probes.peek();
+        if (waitTicks == 0) server.getClass().getMethod("goToReplayTick", int.class).invoke(server, t);
+        if (++waitTicks < 40) return;
+        Minecraft mc = Minecraft.getInstance();
+        for (net.minecraft.world.entity.player.Player p : mc.level.players()) {
+            if (p == mc.player) continue;                             // the replay viewer
+            builderId = p.getUUID();
+            Vec3 shot = clearShotOf(mc, p);
+            if (shot != null) {
+                builderAt.put(t, p.position());
+                closeupEye.put(t, shot);
+            }
+            break;
+        }
+        probes.poll();
+        waitTicks = 0;
+    }
+
+    /** The recorded builder (its name tag is hidden in the export). */
+    private static java.util.UUID builderId;
+
+    /** Camera spots for close shots, found while scrubbing: replay tick -> camera position. */
+    private static final Map<Integer, Vec3> closeupEye = new TreeMap<>();
+
+    /**
+     * A camera spot a few blocks from the builder with a clear line of sight to their head - tried round
+     * them (outward from the build first), at several distances and heights, in the replay world as it is at
+     * that moment. Null if every spot is blocked (then that close shot is skipped).
+     */
+    private static Vec3 clearShotOf(Minecraft mc, net.minecraft.world.entity.player.Player p) {
+        double cx = num("centerX", 0) + 0.5, cz = num("centerZ", 0) + 0.5;
+        Vec3 head = p.getEyePosition();
+        double out = Math.atan2(p.getZ() - cz, p.getX() - cx);        // away from the middle of the build
+        for (double dist : new double[]{7, 9, 12}) {
+            for (double up : new double[]{3, 5, 1.5}) {
+                for (int k = 0; k < 8; k++) {
+                    double ang = out + (k % 2 == 0 ? 1 : -1) * Math.PI / 4 * ((k + 1) / 2);
+                    Vec3 eye = new Vec3(head.x + Math.cos(ang) * dist, head.y + up, head.z + Math.sin(ang) * dist);
+                    if (!mc.level.getBlockState(net.minecraft.core.BlockPos.containing(eye)).isAir()) continue;
+                    net.minecraft.world.phys.BlockHitResult hit = mc.level.clip(new net.minecraft.world.level.ClipContext(eye, head,
+                            net.minecraft.world.level.ClipContext.Block.VISUAL, net.minecraft.world.level.ClipContext.Fluid.NONE, p));
+                    if (hit.getType() == net.minecraft.world.phys.HitResult.Type.MISS) return eye;
+                }
+            }
+        }
+        return null;
+    }
+
+    /** Only the soundtrack in the video: game sounds (at 80x speed, a racket) are muted for the render. */
+    private static void muteGameSounds(boolean mute) {
+        net.minecraft.client.Options o = Minecraft.getInstance().options;
+        if (mute) {
+            savedVolumes = new java.util.EnumMap<>(net.minecraft.sounds.SoundSource.class);
+            for (net.minecraft.sounds.SoundSource s : net.minecraft.sounds.SoundSource.values()) {
+                if (s == net.minecraft.sounds.SoundSource.MASTER) continue;
+                savedVolumes.put(s, o.getSoundSourceOptionInstance(s).get());
+                o.getSoundSourceOptionInstance(s).set(0.0);
+            }
+        } else if (savedVolumes != null) {
+            savedVolumes.forEach((s, v) -> o.getSoundSourceOptionInstance(s).set(v));
+            savedVolumes = null;
+        }
+    }
+
+    /**
+     * A close still shot of the character at work: from just outside the build, a few blocks behind and
+     * above the builder, looking at them. `a` is where the shot starts (a hard cut in and out).
+     */
+    private static boolean closeup(int a, double cx, double cz, double frontYaw) throws Exception {
+        Vec3 p = null, spot = null;
+        for (Map.Entry<Integer, Vec3> e : builderAt.entrySet()) {
+            if (Math.abs(e.getKey() - a) < 40) {
+                p = e.getValue();
+                spot = closeupEye.get(e.getKey());
+            }
+        }
+        if (p == null || spot == null) return false;                  // no clear view of the character then
+        Vector3d eyePos = new Vector3d(spot.x, spot.y, spot.z);
+        double tx = p.x - eyePos.x, ty = p.y + 1.2 - eyePos.y, tz = p.z - eyePos.z;
+        float yaw = (float) Math.toDegrees(Math.atan2(-tx, tz));
+        float pitch = (float) -Math.toDegrees(Math.atan2(ty, Math.sqrt(tx * tx + tz * tz)));
+        cam.put(a, camKf.newInstance(eyePos, yaw, pitch, 0f, hold));
+        return true;
     }
 
     private static void tickExporting() throws Exception {
@@ -128,6 +246,7 @@ final class RenderDirector {
             waitTicks = 0;
             return;
         }
+        muteGameSounds(false);
         state = State.IDLE;
     }
 
@@ -241,12 +360,27 @@ final class RenderDirector {
                 // A few still angles cut together through the timelapse, then a slow low sweep past the finish.
                 time = 6500;                                             // clear daylight
                 int c1 = T + (int) (D * 0.35), c2 = T + (int) (D * 0.7);
+                int p1 = T + (int) (D * 0.2), p2 = T + (int) (D * 0.55);
                 fixed(0, low, front - 60, 22, frontDist * 1.25);
                 speed(0, T, 5);
                 fixed(T, mid, front + 70, 10, frontDist);
-                speed(T, c1, 7);
+                if (closeup(p1, cx, cz, front)) {                        // cut in close to the character at work
+                    speed(T, p1, 3.5);
+                    speed(p1, p1 + CLOSEUP_TICKS, 1.5);
+                    fixed(p1 + CLOSEUP_TICKS, mid, front + 70, 10, frontDist);
+                    speed(p1 + CLOSEUP_TICKS, c1, 3.5);
+                } else {
+                    speed(T, c1, 7);
+                }
                 fixed(c1, mid, front, 24, frontDist * 1.05);
-                speed(c1, c2, 7);
+                if (closeup(p2, cx, cz, front)) {
+                    speed(c1, p2, 3.5);
+                    speed(p2, p2 + CLOSEUP_TICKS, 1.5);
+                    fixed(p2 + CLOSEUP_TICKS, mid, front, 24, frontDist * 1.05);
+                    speed(p2 + CLOSEUP_TICKS, c2, 3.5);
+                } else {
+                    speed(c1, c2, 7);
+                }
                 fixed(c2, mid, front - 40, 6, frontDist * 0.95);
                 speed(c2, B, 6);
                 move(B, end, new Vector3d(cx, base + h * 0.25, cz), new Vector3d(cx, base + h * 0.4, cz),
@@ -259,8 +393,20 @@ final class RenderDirector {
                 move(0, T, ground, low, front - 140, front - 60, 38, 30, frontDist * 1.45, frontDist * 1.2);
                 speed(0, H, 2);
                 speed(H, T, 10);
-                move(T, B, low, mid, front - 60, front + 120, 30, 16, frontDist * 1.2, frontDist);
-                speed(T, B, 38);
+                int p = T + (int) (D * 0.4);
+                Vector3d between = new Vector3d(cx, (low.y + mid.y) / 2 + (mid.y - low.y) * -0.1, cz);
+                if (closeup(p, cx, cz, front) && p > T + 40) {
+                    // Circle up to 40% of the build, cut in to the character for a beat, then circle on.
+                    move(T, p, low, between, front - 60, front + 12, 30, 24, frontDist * 1.2, frontDist * 1.12);
+                    speed(T, p, 15);
+                    closeup(p, cx, cz, front);
+                    speed(p, p + CLOSEUP_TICKS, 1.5);
+                    move(p + CLOSEUP_TICKS, B, between, mid, front + 12, front + 120, 24, 16, frontDist * 1.12, frontDist);
+                    speed(p + CLOSEUP_TICKS, B, 21);
+                } else {
+                    move(T, B, low, mid, front - 60, front + 120, 30, 16, frontDist * 1.2, frontDist);
+                    speed(T, B, 38);
+                }
                 move(B, end, mid, mid, front + 120, front + 200, 14, 6, frontDist, frontDist * 0.97);
                 speed(B, end, 10);
             }
@@ -268,6 +414,21 @@ final class RenderDirector {
         time = (int) num("timeOfDay", time);
         day.put(0, dayKf.newInstance(time));
         day.put(end, dayKf.newInstance(time));
+
+        // Soundtrack: an audio file (config/startbuild-music/<music>.ogg) from the first frame.
+        Object audioTrack = null;
+        Path music = null;
+        if (job.containsKey("music")) {
+            music = FabricLoader.getInstance().getConfigDir().resolve("startbuild-music").resolve(job.get("music") + ".ogg");
+            if (Files.isRegularFile(music)) {
+                audioTrack = newTrack.newInstance(Class.forName("com.moulberry.flashback.keyframe.types.AudioKeyframeType").getField("INSTANCE").get(null));
+                TreeMap<Integer, Object> a = cast(byTick.get(audioTrack));
+                a.put(0, Class.forName("com.moulberry.flashback.keyframe.impl.AudioKeyframe").getConstructor(Path.class).newInstance(music));
+            } else {
+                StartBuildMod.LOGGER.warn("[StartBuild] render: no music file {}", music);
+                music = null;
+            }
+        }
 
         Class<?> esm = Class.forName("com.moulberry.flashback.state.EditorStateManager");
         Object es = esm.getMethod("getCurrent").invoke(null);
@@ -279,8 +440,13 @@ final class RenderDirector {
             tracks.add(camTrack);
             tracks.add(lapseTrack);
             tracks.add(dayTrack);
+            if (audioTrack != null) tracks.add(audioTrack);
         } finally {
             es.getClass().getMethod("release", long.class).invoke(es, stamp);
+        }
+        if (builderId != null) {                                      // no floating name tag over the character
+            java.util.Set<java.util.UUID> hidden = cast(es.getClass().getField("hideNametags").get(es));
+            hidden.add(builderId);
         }
         es.getClass().getMethod("markDirty").invoke(es);
 
@@ -306,15 +472,15 @@ final class RenderDirector {
                 30.0, false, false,
                 enumValue("com.moulberry.flashback.combo_options.VideoContainer", "MP4"), h264,
                 encoders.length > 0 ? encoders[0] : "libx264",
-                24_000_000, false, false, true, false,
-                null, output, "%04d");
+                24_000_000, false, false, true, music != null,
+                music != null ? enumValue("com.moulberry.flashback.combo_options.AudioCodec", "AAC") : null, output, "%04d");
         Class<?> utils = Class.forName("com.moulberry.flashback.Utils");
         Field seq = utils.getField("exportSequenceCount");
         seq.setInt(null, seq.getInt(null) + 1);
         fb.getField("EXPORT_JOB").set(null,
                 Class.forName("com.moulberry.flashback.exporting.ExportJob").getConstructor(settingsCls).newInstance(settings));
-        StartBuildMod.LOGGER.info("[StartBuild] render: exporting '{}' ({} s, {} camera keyframes, time {}) to {}",
-                style, outTicks / 20, cam.size(), time, output);
+        StartBuildMod.LOGGER.info("[StartBuild] render: exporting '{}' ({} s, {} camera keyframes, time {}, music {}) to {}",
+                style, outTicks / 20, cam.size(), time, music == null ? "none" : music.getFileName(), output);
     }
 
     @SuppressWarnings("unchecked")
