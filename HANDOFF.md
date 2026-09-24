@@ -1,6 +1,6 @@
-# HANDOFF — Build Automation Tool (StartBuild 2.8.x)
+# HANDOFF — Build Automation Tool (StartBuild 2.9.x)
 
-> Read this first. Last updated 2026-09-24, mod version **2.8.0**, branch `natural-builder-2.0`.
+> Read this first. Last updated 2026-09-24, mod version **2.9.0**, branch `natural-builder-2.0`.
 > The Baritone-era docs (1.x, why Baritone could not do this) are archived in `docs/`.
 
 ## 1. What it is
@@ -30,9 +30,13 @@ overlays on camera); no skipped blocks; runs unattended; site prep is done by th
    - FILL (bottom-up): earth up to the new ground, and a fresh top block (the site's most common surface —
      grass/sand/...) on every changed column, plus a snow layer in snowy sites;
    - BUILD.
-   New ground height: footprint flat at the base; around it the ground eases back to natural height within
-   `terraformRadius` (12) blocks, slope 1-in-2 or steeper only if the site needs it, with value noise so
-   banks wander. Water columns untouched; cuts never go below adjacent water.
+   New ground height (2.9.0, `Terraformer.targetHeights`): flat only where the build STANDS (its bottom two
+   layers), not the bounding box - gardens/gaps/corners are shaped like the land, kept under any part of the
+   build overhead (`cap`); from there a smoothstep curve eases back to natural height over `terraformRadius`
+   (12, grows to 24 so the average edge slope is <= 0.7), with value noise. Each changed column keeps its own
+   top block / block below / snow; the banks are replanted by hand with the plants sampled on the untouched
+   land around (same mix and density: grass, ferns, flowers, dry bushes). Water columns untouched; cuts
+   never go below adjacent water.
 5. `NaturalBuilder` (creative, flying) places blocks bottom-up:
    - picks the nearest cell that has something to click against right now;
    - solves the click that yields the EXACT state (`getStateForPlacement` simulation — gets `axis=x` logs,

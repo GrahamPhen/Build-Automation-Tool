@@ -32,9 +32,10 @@ import java.util.Set;
  *   - FILL (bottom-up): earth to raise dips to the pad, and a fresh top block (grass, sand, ...) on every
  *     column whose surface changed, so a cut shows grass, not bare dirt or stone.
  *
- * The new ground height ({@link #targetHeights}): the footprint is flat at the build's base; around it the
- * ground eases back to the natural height, never steeper than the slope the site needs, with a little
- * noise so the banks are not a perfect cone. The blend zone grows (up to {@link #MAX_RADIUS}) on steep
+ * The new ground height ({@link #targetHeights}): flat only where the build actually stands (not its whole
+ * bounding box); from there the ground eases back to the natural height along a smooth curve, with a little
+ * noise so the banks wander. Each reshaped column keeps its own top block, and the banks are replanted by
+ * hand with the same plants, as thickly as the untouched land around. The blend zone grows (up to {@link #MAX_RADIUS}) on steep
  * sites so there is no cliff where it ends. Water columns are left alone, and cuts never go below an
  * adjacent lake/river surface (that would let the water run in).
  */
@@ -45,10 +46,10 @@ final class Terraformer {
     }
 
     record Plan(List<Part> parts, int cut, int filled, int treeBlocks, int trees, int radius,
-                BlockState surface, BlockState subsurface, int floodRisk) {
+                BlockState surface, BlockState subsurface, int floodRisk, int planted) {
         String describe() {
-            return String.format("%,d block(s) to clear (%d tree(s), %,d tree blocks), %,d to place, blend radius %d; "
-                            + "ground %s over %s%s", cut, trees, treeBlocks, filled, radius, name(surface), name(subsurface),
+            return String.format("%,d block(s) to clear (%d tree(s), %,d tree blocks), %,d to place (%d plant(s)), blend radius %d; "
+                            + "ground %s over %s%s", cut, trees, treeBlocks, filled, planted, radius, name(surface), name(subsurface),
                     floodRisk > 0 ? "; WARNING: water above the base next to " + floodRisk + " footprint column(s)" : "");
         }
     }
@@ -117,8 +118,47 @@ final class Terraformer {
                 noise[dz * w + dx] = (int) Math.round(noise(zx + dx, zz + dz) * 90);   // 0..90 (hundredths)
             }
         }
+        // Where the build actually stands (its bottom two layers), and how high the ground may come under
+        // the rest of its bounding box (below its lowest block there): gardens, gaps and corners are then
+        // shaped like the land around, not levelled into a rectangular plateau.
+        boolean[] standing = new boolean[w * d];
+        int[] cap = new int[w * d];
+        java.util.Arrays.fill(cap, Integer.MAX_VALUE);
+        boolean anyStanding = false;
+        for (int sz = 0; sz < m.sizeZ; sz++) {
+            for (int sx = 0; sx < m.sizeX; sx++) {
+                int i = (sz + r) * w + sx + r;
+                int lowest = -1;
+                for (int y = 0; y < m.sizeY && lowest < 0; y++) if (!m.at(sx, y, sz).isAir()) lowest = y;
+                if (lowest == 0 || lowest == 1) {
+                    standing[i] = true;
+                    anyStanding = true;
+                }
+                if (lowest >= 0) cap[i] = pad + lowest;     // ground top stays below the build's lowest block
+                else cap[i] = pad + m.sizeY;                // open sky above: anything up to the build's top
+            }
+        }
+        if (!anyStanding) {                                 // nothing in the bottom layers: level the whole box
+            for (int sz = 0; sz < m.sizeZ; sz++) for (int sx = 0; sx < m.sizeX; sx++) standing[(sz + r) * w + sx + r] = true;
+        }
+        double[] dist = distanceField(standing, w, d);
         int[] blend = new int[1];
-        int[] target = targetHeights(ground, wet, noise, w, d, r, r, m.sizeX, m.sizeZ, pad, radius, blend);
+        int[] target = targetHeights(ground, wet, noise, dist, cap, w, d, pad, radius, blend);
+
+        // What grows on the untouched land around (grass tufts, ferns, flowers, dry bushes - and how thickly),
+        // so the reshaped ground can be replanted by hand to match and does not stand out as a bald ring.
+        List<BlockState> plants = new ArrayList<>();
+        int sampled = 0;
+        for (int dz = 0; dz < d; dz += 2) {
+            for (int dx = 0; dx < w; dx += 2) {
+                int i = dz * w + dx;
+                if (colTop[i] == null || target[i] != ground[i] || dist[i] == 0 || colSnow[i]) continue;
+                sampled++;
+                BlockState above = level.getBlockState(new BlockPos(zx + dx, ground[i] + 1, zz + dz));
+                if (replantable(above)) plants.add(above.getBlock().defaultBlockState());
+            }
+        }
+        double plantDensity = sampled == 0 ? 0 : Math.min(0.8, plants.size() / (double) sampled);
 
         // Water above the base right next to the footprint: digging the footprint would let it in.
         int floodRisk = 0;
@@ -135,6 +175,7 @@ final class Terraformer {
         Map<BlockPos, BlockState> fill = new HashMap<>();
         BlockState air = Blocks.AIR.defaultBlockState();
         int buildTop = pad + m.sizeY + 1;
+        int planted = 0;
         for (int dz = 0; dz < d; dz++) {
             for (int dx = 0; dx < w; dx++) {
                 int x = zx + dx, z = zz + dz, i = dz * w + dx;
@@ -160,7 +201,18 @@ final class Terraformer {
                 } else if (t > g) {
                     for (int y = g + 1; y <= t; y++) fill.put(new BlockPos(x, y, z), y == t ? mySurface : mySub);
                 }
-                if ((colTop[i] != null ? colSnow[i] : snowy) && !foot && t != g) fill.put(new BlockPos(x, t + 1, z), Blocks.SNOW.defaultBlockState());
+                boolean snowHere = colTop[i] != null ? colSnow[i] : snowy;
+                if (snowHere && !foot && t != g) {
+                    fill.put(new BlockPos(x, t + 1, z), Blocks.SNOW.defaultBlockState());
+                } else if (!foot && t != g && !plants.isEmpty() && hash(x * 3 + 7, z * 5 + 11) < plantDensity) {
+                    // Replant by hand, as thickly and with the same mix as the untouched land around.
+                    BlockState plant = plants.get((int) (hash(x * 13 + 1, z * 17 + 3) * plants.size()));
+                    boolean dry = plant.is(Blocks.DEAD_BUSH) || plant.is(Blocks.SHORT_DRY_GRASS) || plant.is(Blocks.TALL_DRY_GRASS);
+                    if (mySurface.is(dry ? BlockTags.SUPPORTS_DRY_VEGETATION : BlockTags.SUPPORTS_VEGETATION)) {
+                        fill.put(new BlockPos(x, t + 1, z), plant);
+                        planted++;
+                    }
+                }
             }
         }
 
@@ -187,71 +239,67 @@ final class Terraformer {
         SchematicModel fm = toModel(fill, fo);
         if (fm != null) parts.add(new Part("terraforming: filling", fm, fo[0], false));
         return new Plan(parts, clear.size() + treeBlocks, fill.size(), treeBlocks, trees.size(), blend[0],
-                surface, subsurface, floodRisk);
+                surface, subsurface, floodRisk, planted);
     }
 
     /**
      * The new ground height per column - pure arithmetic, unit-tested.
      *
+     * Flat only where the build actually stands (dist 0); from there the ground eases back to its natural
+     * height along a smoothstep curve over the blend radius - gentle out of the pad, gentle into the land,
+     * no crease at either end - with a little noise so the banks wander like real terrain.
+     *
      * @param ground natural ground y per column (UNKNOWN = not loaded), row-major w x d
      * @param wet    column surface is water (left as it is)
-     * @param noise  0..90 per column: hundredths of a block of extra allowance, so bank edges wander
-     * @param fx,fz  footprint corner inside the grid; fw,fd its size
+     * @param noise  0..90 per column: hundredths of a block of jitter, so bank edges wander
+     * @param dist   distance to the nearest column the build stands on (0 = it stands here)
+     * @param cap    highest ground allowed per column (under a part of the build overhead), or MAX_VALUE
      * @param pad    the ground level under the build
      * @param minRadius the configured blend radius (the zone grows beyond it only when the site needs it)
      * @param blendOut receives the radius actually used
      * @return target height per column (UNKNOWN where ground is unknown)
      */
-    static int[] targetHeights(int[] ground, boolean[] wet, int[] noise, int w, int d, int fx, int fz, int fw, int fd,
+    static int[] targetHeights(int[] ground, boolean[] wet, int[] noise, double[] dist, int[] cap, int w, int d,
                                int pad, int minRadius, int[] blendOut) {
-        int fx2 = fx + fw - 1, fz2 = fz + fd - 1;
-        // Blend radius: the smallest radius (>= minRadius, <= MAX_RADIUS) at which the height difference at
-        // the zone's edge fits a slope of at most 1 (steeper only if even MAX_RADIUS cannot fit it).
+        // Blend radius: the smallest radius (>= minRadius, <= MAX_RADIUS) over which the height difference at
+        // its edge averages at most 0.7 up per 1 across - the smoothstep's steepest point is then ~1:1.
         int r = Math.max(2, Math.min(minRadius, MAX_RADIUS));
-        double slope = 0.5;
         for (int cand = r; cand <= MAX_RADIUS; cand++) {
             double maxEdge = 0;
-            for (int z = 0; z < d; z++) {
-                for (int x = 0; x < w; x++) {
-                    int i = z * w + x;
-                    if (ground[i] == UNKNOWN || wet[i]) continue;
-                    double dist = distToFoot(x, z, fx, fz, fx2, fz2);
-                    if (dist >= cand - 1 && dist <= cand) maxEdge = Math.max(maxEdge, Math.abs(ground[i] - pad));
-                }
+            for (int i = 0; i < w * d; i++) {
+                if (ground[i] == UNKNOWN || wet[i]) continue;
+                if (dist[i] >= cand - 1 && dist[i] <= cand) maxEdge = Math.max(maxEdge, Math.abs(ground[i] - pad));
             }
             r = cand;
-            slope = Math.max(0.5, maxEdge / cand);
-            if (slope <= 1.0) break;
+            if (maxEdge / cand <= 0.7) break;
         }
-        slope = Math.min(3.0, slope);
 
         int[] target = new int[w * d];
-        for (int z = 0; z < d; z++) {
-            for (int x = 0; x < w; x++) {
-                int i = z * w + x;
-                if (ground[i] == UNKNOWN) {
-                    target[i] = UNKNOWN;
-                } else if (inFoot(x, z, fx, fz, fx2, fz2)) {
-                    target[i] = pad;
-                } else if (wet[i]) {
-                    target[i] = ground[i];
-                } else {
-                    double dist = distToFoot(x, z, fx, fz, fx2, fz2);
-                    if (dist > r) {
-                        target[i] = ground[i];              // beyond the blend zone: untouched
-                        continue;
-                    }
-                    int allowed = (int) Math.floor(dist * slope + noise[i] / 100.0);
-                    int diff = ground[i] - pad;
-                    target[i] = pad + Math.max(-allowed, Math.min(allowed, diff));
-                }
+        for (int i = 0; i < w * d; i++) {
+            if (ground[i] == UNKNOWN) {
+                target[i] = UNKNOWN;
+                continue;
             }
+            if (dist[i] == 0) {
+                target[i] = pad;
+                continue;
+            }
+            if (wet[i] || dist[i] > r) {
+                target[i] = ground[i];                  // water, and land beyond the blend zone: untouched
+            } else {
+                double s = dist[i] / r;
+                double ease = s * s * (3 - 2 * s);      // smoothstep: 0 at the pad, 1 at the zone's edge
+                int diff = ground[i] - pad;
+                int t = (int) Math.round(pad + diff * ease + (noise[i] - 45) / 100.0);
+                target[i] = Math.max(Math.min(pad, ground[i]), Math.min(Math.max(pad, ground[i]), t));
+            }
+            if (target[i] > cap[i]) target[i] = cap[i];
         }
         // Never dig below the surface of water next to a cut: it would pour into the site.
         for (int z = 0; z < d; z++) {
             for (int x = 0; x < w; x++) {
                 int i = z * w + x;
-                if (target[i] == UNKNOWN || target[i] >= ground[i] || inFoot(x, z, fx, fz, fx2, fz2)) continue;
+                if (target[i] == UNKNOWN || target[i] >= ground[i] || dist[i] == 0) continue;
                 for (int oz = -2; oz <= 2; oz++) {
                     for (int ox = -2; ox <= 2; ox++) {
                         int nx = x + ox, nz = z + oz;
@@ -266,6 +314,32 @@ final class Terraformer {
         return target;
     }
 
+    /** Distance (in columns, ~Euclidean: 1 straight, 1.414 diagonal) from every column to the nearest standing one. */
+    static double[] distanceField(boolean[] standing, int w, int d) {
+        double[] dist = new double[w * d];
+        java.util.Arrays.fill(dist, Double.MAX_VALUE / 4);
+        for (int i = 0; i < w * d; i++) if (standing[i]) dist[i] = 0;
+        double diag = Math.sqrt(2);
+        for (int z = 0; z < d; z++) {
+            for (int x = 0; x < w; x++) {
+                int i = z * w + x;
+                if (x > 0) dist[i] = Math.min(dist[i], dist[i - 1] + 1);
+                if (z > 0) dist[i] = Math.min(dist[i], dist[i - w] + 1);
+                if (x > 0 && z > 0) dist[i] = Math.min(dist[i], dist[i - w - 1] + diag);
+                if (x < w - 1 && z > 0) dist[i] = Math.min(dist[i], dist[i - w + 1] + diag);
+            }
+        }
+        for (int z = d - 1; z >= 0; z--) {
+            for (int x = w - 1; x >= 0; x--) {
+                int i = z * w + x;
+                if (x < w - 1) dist[i] = Math.min(dist[i], dist[i + 1] + 1);
+                if (z < d - 1) dist[i] = Math.min(dist[i], dist[i + w] + 1);
+                if (x < w - 1 && z < d - 1) dist[i] = Math.min(dist[i], dist[i + w + 1] + diag);
+                if (x > 0 && z < d - 1) dist[i] = Math.min(dist[i], dist[i + w - 1] + diag);
+            }
+        }
+        return dist;
+    }
     // ------------------------------------------------------------------ trees
 
     /** @return the trees to fell, each as its own set of cells (top-down worked by its own part). */
@@ -431,6 +505,18 @@ final class Terraformer {
     }
 
     // ------------------------------------------------------------------ helpers
+
+    /** Single-block ground plants the character can put back by hand (double-height ones as their lower half). */
+    private static boolean replantable(BlockState s) {
+        if (s.is(BlockTags.SMALL_FLOWERS)) return true;
+        if (s.is(Blocks.SHORT_GRASS) || s.is(Blocks.FERN) || s.is(Blocks.BUSH) || s.is(Blocks.FIREFLY_BUSH)
+                || s.is(Blocks.DEAD_BUSH) || s.is(Blocks.SHORT_DRY_GRASS)) return true;
+        // Double-height plants: only the lower half is sampled (placing it puts both halves down).
+        return (s.is(Blocks.TALL_GRASS) || s.is(Blocks.LARGE_FERN) || s.is(Blocks.TALL_DRY_GRASS))
+                && s.hasProperty(net.minecraft.world.level.block.state.properties.BlockStateProperties.DOUBLE_BLOCK_HALF)
+                && s.getValue(net.minecraft.world.level.block.state.properties.BlockStateProperties.DOUBLE_BLOCK_HALF)
+                == net.minecraft.world.level.block.state.properties.DoubleBlockHalf.LOWER;
+    }
 
     /** Tree trunks and giant mushrooms: felled whole. */
     private static boolean isWood(BlockState s) {

@@ -2,12 +2,13 @@ package com.graham.startbuild;
 
 import org.junit.jupiter.api.Test;
 
+import java.util.Arrays;
 import java.util.function.IntBinaryOperator;
 
 import static org.junit.jupiter.api.Assertions.assertEquals;
 import static org.junit.jupiter.api.Assertions.assertTrue;
 
-/** The new-ground-height arithmetic of {@link Terraformer#targetHeights}. */
+/** The new-ground-height arithmetic of {@link Terraformer#targetHeights} and its distance field. */
 class TerraformerTest {
 
     private static final int R = Terraformer.MAX_RADIUS;
@@ -15,84 +16,108 @@ class TerraformerTest {
     private static final int W = F + 2 * R;          // grid size
     private static final int PAD = 64;
 
-    /** A W x W grid whose ground is f(x, z); footprint at (R, R) .. (R+F-1, R+F-1). */
+    /** A W x W grid whose ground is f(x, z); the build stands on (R, R) .. (R+F-1, R+F-1). */
     private static int[] grid(IntBinaryOperator f) {
         int[] g = new int[W * W];
         for (int z = 0; z < W; z++) for (int x = 0; x < W; x++) g[z * W + x] = f.applyAsInt(x, z);
         return g;
     }
 
+    private static boolean[] footprint() {
+        boolean[] s = new boolean[W * W];
+        for (int z = R; z < R + F; z++) for (int x = R; x < R + F; x++) s[z * W + x] = true;
+        return s;
+    }
+
+    private static final double[] DIST = Terraformer.distanceField(footprint(), W, W);
+
+    private static int[] noCap() {
+        int[] c = new int[W * W];
+        Arrays.fill(c, Integer.MAX_VALUE);
+        return c;
+    }
+
     private static int[] run(int[] ground, boolean[] wet, int minRadius, int[] blend) {
-        return Terraformer.targetHeights(ground, wet, new int[W * W], W, W, R, R, F, F, PAD, minRadius, blend);
+        return Terraformer.targetHeights(ground, wet, new int[W * W], DIST, noCap(), W, W, PAD, minRadius, blend);
     }
 
     private static double dist(int x, int z) {
         return Terraformer.distToFoot(x, z, R, R, R + F - 1, R + F - 1);
     }
 
-    @Test
-    void flatGroundIsLeftAlone() {
-        int[] ground = grid((x, z) -> PAD);
-        int[] t = run(ground, new boolean[W * W], 12, null);
-        for (int i = 0; i < t.length; i++) assertEquals(PAD, t[i]);
+    /** No two neighbouring columns of the new ground differ by more than `max` (no cliffs, no creases). */
+    private static void assertSmooth(int[] t, int max) {
+        for (int z = 0; z < W; z++) {
+            for (int x = 0; x + 1 < W; x++) {
+                int a = t[z * W + x], b = t[z * W + x + 1];
+                if (a == Terraformer.UNKNOWN || b == Terraformer.UNKNOWN) continue;
+                assertTrue(Math.abs(a - b) <= max, "step of " + Math.abs(a - b) + " at " + x + "," + z);
+            }
+        }
     }
 
     @Test
-    void footprintIsFlatAndBanksEaseBackToTheHill() {
-        // A hill rising 1 block per block westward... everywhere: ground = PAD + distance from the footprint.
-        int[] ground = grid((x, z) -> PAD + (int) Math.round(dist(x, z)));
+    void distanceFieldIsEuclideanEnough() {
+        assertEquals(0.0, DIST[R * W + R]);
+        assertEquals(5.0, DIST[(R + 3) * W + R - 5], 1e-9);          // 5 straight out to the west
+        double diag = DIST[(R - 4) * W + R - 3];                       // 3 west, 4 north: true distance 5
+        assertTrue(Math.abs(diag - 5) < 0.7, "diagonal " + diag);
+    }
+
+    @Test
+    void flatGroundIsLeftAlone() {
+        int[] t = run(grid((x, z) -> PAD), new boolean[W * W], 12, null);
+        for (int v : t) assertEquals(PAD, v);
+    }
+
+    @Test
+    void footprintIsFlatAndAHillIsEasedBackSmoothly() {
+        int[] ground = grid((x, z) -> PAD + (int) Math.round(dist(x, z) * 0.5));
         int[] blend = new int[1];
         int[] t = run(ground, new boolean[W * W], 12, blend);
         for (int z = 0; z < W; z++) {
             for (int x = 0; x < W; x++) {
                 int i = z * W + x;
-                double d = dist(x, z);
-                if (d == 0) assertEquals(PAD, t[i], "footprint must be flat at the pad");
-                assertTrue(t[i] <= ground[i], "a hill is only ever cut, never raised");
-                assertTrue(t[i] >= PAD, "never dug below the pad");
-                if (d > blend[0]) assertEquals(ground[i], t[i], "beyond the blend zone the land is untouched");
+                if (dist(x, z) == 0) assertEquals(PAD, t[i], "the build stands on flat ground");
+                assertTrue(t[i] <= ground[i] && t[i] >= PAD, "a hill is only cut, never raised or dug below the pad");
+                if (DIST[i] > blend[0]) assertEquals(ground[i], t[i], "beyond the blend zone the land is untouched");
             }
         }
-        // Slope 1 at radius 12 fits exactly: the blend radius stays at the configured 12.
-        assertEquals(12, blend[0]);
+        assertEquals(12, blend[0], "a 1-in-2 hill fits the configured radius");
+        // The eased curve plus the hill's own rise can round to an occasional 2-block step - ordinary
+        // Minecraft terrain - but never a cliff.
+        assertSmooth(t, 2);
     }
 
     @Test
-    void dipIsFilledWithAnEmbankment() {
-        int[] ground = grid((x, z) -> dist(x, z) == 0 ? PAD - 6 : PAD - 6);   // a hollow 6 below the pad
+    void dipIsFilledWithASmoothEmbankment() {
+        int[] ground = grid((x, z) -> PAD - 6);
         int[] t = run(ground, new boolean[W * W], 12, null);
-        for (int z = 0; z < W; z++) {
-            for (int x = 0; x < W; x++) {
-                int i = z * W + x;
-                assertTrue(t[i] >= ground[i], "a dip is only ever filled, never cut");
-                double d = dist(x, z);
-                if (d == 0) assertEquals(PAD, t[i]);
-                if (d >= 1 && d <= 12) assertTrue(PAD - t[i] <= Math.floor(d * 0.5 + 0.9) + 1e-9,
-                        "the embankment slopes no steeper than 1 in 2 here");
-            }
-        }
+        for (int i = 0; i < t.length; i++) assertTrue(t[i] >= ground[i], "a dip is only filled, never cut");
+        assertSmooth(t, 1);
     }
 
     @Test
     void steepSiteWidensTheBlendInsteadOfLeavingACliff() {
-        int[] ground = grid((x, z) -> dist(x, z) == 0 ? PAD : PAD + 20);   // a 20-block cliff all round
+        int[] ground = grid((x, z) -> dist(x, z) == 0 ? PAD : PAD + 20);
         int[] blend = new int[1];
         int[] t = run(ground, new boolean[W * W], 12, blend);
         assertTrue(blend[0] > 12, "the zone grows on a steep site, was " + blend[0]);
-        // At the zone's edge the new ground meets the natural ground: at most an ordinary 1-block step, no cliff.
-        for (int z = 0; z < W; z++) {
-            for (int x = 0; x < W; x++) {
-                if (Math.abs(dist(x, z) - blend[0]) < 0.5) {
-                    assertTrue(Math.abs(ground[z * W + x] - t[z * W + x]) <= 1,
-                            "step at the edge " + (ground[z * W + x] - t[z * W + x]));
-                }
-            }
-        }
+        assertSmooth(t, 2);
+    }
+
+    @Test
+    void groundStaysUnderAnOverhangingPartOfTheBuild() {
+        int[] ground = grid((x, z) -> PAD + 8);
+        int[] cap = noCap();
+        int i = (R - 2) * W + R + 3;                                  // just outside the standing footprint
+        cap[i] = PAD + 2;                                             // a balcony 2 above the pad overhead
+        int[] t = Terraformer.targetHeights(ground, new boolean[W * W], new int[W * W], DIST, cap, W, W, PAD, 12, null);
+        assertTrue(t[i] <= PAD + 2, "ground " + t[i] + " would hit the build");
     }
 
     @Test
     void waterIsUntouchedAndCutsStayAboveIt() {
-        // Ground 5 above the pad, with a pond (surface PAD + 3) just east of the footprint.
         int[] ground = grid((x, z) -> PAD + 5);
         boolean[] wet = new boolean[W * W];
         int px = R + F + 3;
@@ -112,11 +137,8 @@ class TerraformerTest {
 
     @Test
     void unknownColumnsStayUnknown() {
-        int[] ground = grid((x, z) -> x < 3 ? Terraformer.UNKNOWN : PAD);
-        int[] t = run(ground, new boolean[W * W], 12, null);
-        for (int z = 0; z < W; z++) {
-            for (int x = 0; x < 3; x++) assertEquals(Terraformer.UNKNOWN, t[z * W + x]);
-        }
+        int[] t = run(grid((x, z) -> x < 3 ? Terraformer.UNKNOWN : PAD), new boolean[W * W], 12, null);
+        for (int z = 0; z < W; z++) for (int x = 0; x < 3; x++) assertEquals(Terraformer.UNKNOWN, t[z * W + x]);
     }
 
     @Test
