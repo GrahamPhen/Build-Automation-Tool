@@ -106,7 +106,8 @@ public class StartBuildMod implements ClientModInitializer {
 
         ClientTickEvents.END_CLIENT_TICK.register(client -> {
             selfTestOnce(client);
-            NaturalSession.tick();
+            RenderDirector.tick();
+            if (!RenderDirector.isBusy()) NaturalSession.tick();
         });
     }
 
