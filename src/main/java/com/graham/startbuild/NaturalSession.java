@@ -4,14 +4,21 @@ import net.fabricmc.loader.api.FabricLoader;
 import net.minecraft.client.Minecraft;
 import net.minecraft.client.multiplayer.ClientLevel;
 import net.minecraft.client.player.LocalPlayer;
+import net.minecraft.client.server.IntegratedServer;
 import net.minecraft.core.BlockPos;
+import net.minecraft.core.Holder;
+import net.minecraft.server.level.ServerLevel;
 import net.minecraft.world.level.GameType;
+import net.minecraft.world.level.biome.Biome;
 import net.minecraft.world.level.levelgen.Heightmap;
+import com.mojang.datafixers.util.Pair;
 
 import java.io.File;
 import java.nio.file.Files;
 import java.nio.file.Path;
+import java.util.ArrayList;
 import java.util.List;
+import java.util.concurrent.CompletableFuture;
 
 /**
  * One unattended take: pick/prepare the site, start Flashback, let {@link NaturalBuilder} build the whole
@@ -242,11 +249,25 @@ final class NaturalSession {
     private static List<PlacementFinder.Result> siteChoices = List.of();
     private static int siteIndex;
     private static String siteName;
+    private static String siteWishText = "";
+    private static SchematicModel siteModel;
+    /** Every site already shown for siteName - never offered again, so each search really moves. */
+    private static final List<BlockPos> shownSites = new ArrayList<>();
+    private static int explorations;
+    // A search that first has to travel: find the biome (server thread), fly there, wait for chunks.
+    private static CompletableFuture<Pair<BlockPos, Holder<Biome>>> biomeLookup;
+    private static BlockPos exploreTarget;
+    private static int exploreTicks;
 
     /**
-     * "/findsite <name> near a river" - searches the loaded world around the player for the most natural
-     * spot, shows the build there as a ghost, and flies the player to a viewpoint. /findsite next shows
-     * the runner-up; /startbuild confirm builds it.
+     * "/findsite <name> [wish]" - shows the most natural spot for the build as a ghost and flies the player
+     * to a viewpoint; /startbuild confirm builds it.
+     *   - the first search for a schematic looks at the loaded world around the player;
+     *   - running it again for the same schematic (or /findsite next past the last choice) flies 600-900
+     *     blocks away in a new direction and searches there - a different area every time;
+     *   - a biome in the wish ("snowy", "desert", "cherry grove", ...) flies to the nearest such biome that has
+     *     not been used yet, and only offers sites inside it.
+     * Sites already shown are never offered again.
      */
     static int findSite(String rawName, String wishText) {
         Minecraft mc = Minecraft.getInstance();
@@ -270,21 +291,18 @@ final class NaturalSession {
             StartBuildMod.chat("\u00A7cCould not read " + name + ".");
             return 0;
         }
-        PlacementFinder.Wish wish = PlacementFinder.parseWish(wishText);
-        int radius = Math.max(48, mc.options.getEffectiveRenderDistance() * 16 - Math.max(m.sizeX, m.sizeZ) - 16);
-        long t0 = System.currentTimeMillis();
-        List<PlacementFinder.Result> found = PlacementFinder.find(mc.level, mc.player.blockPosition(), radius, m, wish, 5);
-        StartBuildMod.LOGGER.info("[StartBuild] findsite {} wish={} radius={} -> {} site(s) in {} ms",
-                name, wish, radius, found.size(), System.currentTimeMillis() - t0);
-        if (found.isEmpty()) {
-            StartBuildMod.chat("\u00A7eNo good spot within " + radius + " blocks"
-                    + (wish == PlacementFinder.Wish.WATER ? " next to water" : "") + ". Fly somewhere else and try again.");
-            return 0;
+        boolean repeat = name.equals(siteName);
+        if (!repeat) {
+            shownSites.clear();
+            explorations = 0;
         }
-        siteChoices = found;
-        siteIndex = 0;
         siteName = name;
-        return showSite();
+        siteModel = m;
+        siteWishText = wishText == null ? "" : wishText;
+        siteChoices = List.of();
+        if (!PlacementFinder.biomeWords(siteWishText).isEmpty()) return exploreBiome(mc);
+        if (repeat) return exploreElsewhere(mc);
+        return searchAround(mc, mc.player.blockPosition());
     }
 
     static int nextSite() {
@@ -292,7 +310,133 @@ final class NaturalSession {
             StartBuildMod.chat("\u00A7eRun /findsite <name> <wish> first.");
             return 0;
         }
-        siteIndex = (siteIndex + 1) % siteChoices.size();
+        if (siteIndex + 1 >= siteChoices.size()) {
+            // Seen every choice here: go somewhere new rather than cycling back to the first one.
+            Minecraft mc = Minecraft.getInstance();
+            if (!PlacementFinder.biomeWords(siteWishText).isEmpty()) return exploreBiome(mc);
+            return exploreElsewhere(mc);
+        }
+        siteIndex++;
+        return showSite();
+    }
+
+    /** Next exploration point: 600-900 blocks away, each time in a new direction (golden-angle spiral). */
+    private static BlockPos nextExplorePoint(BlockPos from) {
+        explorations++;
+        double angle = Math.toRadians(explorations * 137.508);
+        int dist = 600 + 150 * (explorations % 3);
+        return new BlockPos(from.getX() + (int) (Math.cos(angle) * dist), 64, from.getZ() + (int) (Math.sin(angle) * dist));
+    }
+
+    private static int exploreElsewhere(Minecraft mc) {
+        flyTo(mc, nextExplorePoint(mc.player.blockPosition()));
+        StartBuildMod.chat("Looking somewhere new, ~" + (int) Math.sqrt(mc.player.blockPosition().distSqr(exploreTarget))
+                + " blocks away - loading the area...");
+        return 1;
+    }
+
+    private static int exploreBiome(Minecraft mc) {
+        IntegratedServer server = mc.getSingleplayerServer();
+        if (server == null) {
+            StartBuildMod.chat("\u00A7cBiome search needs a singleplayer world.");
+            return 0;
+        }
+        List<String> words = PlacementFinder.biomeWords(siteWishText);
+        // Start from the player, or - once this biome has been used - from a point far away, so the nearest
+        // match is a different patch of it.
+        BlockPos from = shownSites.isEmpty() ? mc.player.blockPosition() : nextExplorePoint(mc.player.blockPosition());
+        ServerLevel level = server.getLevel(mc.level.dimension());
+        biomeLookup = server.submit(() -> level.findClosestBiome3d(h -> PlacementFinder.biomeMatches(h, words),
+                from, 3200, 32, 64));
+        exploreTarget = null;
+        StartBuildMod.chat("Looking for " + String.join("/", words) + "...");
+        return 1;
+    }
+
+    private static void flyTo(Minecraft mc, BlockPos target) {
+        exploreTarget = target;
+        exploreTicks = 0;
+        if (mc.player.getAbilities().mayfly) {
+            mc.player.getAbilities().flying = true;
+            mc.player.onUpdateAbilities();
+        }
+        StartBuildMod.runServerCommand("tp @s " + target.getX() + " 200 " + target.getZ());
+    }
+
+    /** Called every idle tick: finishes a biome lookup, then waits for the new area's chunks and searches. */
+    private static void tickExplore(Minecraft mc) {
+        if (biomeLookup != null) {
+            if (!biomeLookup.isDone()) return;
+            Pair<BlockPos, Holder<Biome>> hit = null;
+            try {
+                hit = biomeLookup.join();
+            } catch (RuntimeException e) {
+                StartBuildMod.LOGGER.warn("[StartBuild] biome search failed", e);
+            }
+            biomeLookup = null;
+            if (hit == null) {
+                StartBuildMod.chat("\u00A7eNo " + String.join("/", PlacementFinder.biomeWords(siteWishText))
+                        + " biome within 3200 blocks.");
+                return;
+            }
+            StartBuildMod.LOGGER.info("[StartBuild] findsite biome {} at {}",
+                    hit.getSecond().unwrapKey().map(k -> k.identifier().toString()).orElse("?"), hit.getFirst());
+            flyTo(mc, hit.getFirst());
+            return;
+        }
+        if (exploreTarget == null) return;
+        exploreTicks++;
+        if (exploreTicks % 10 != 0) return;
+        // Wait until the chunks the search needs have arrived (they are generated on the way), max 40 s.
+        int reach = searchRadius(mc, siteModel) + Math.max(siteModel.sizeX, siteModel.sizeZ);
+        int missing = 0, total = 0;
+        for (int cz = (exploreTarget.getZ() - reach) >> 4; cz <= (exploreTarget.getZ() + reach) >> 4; cz++) {
+            for (int cx = (exploreTarget.getX() - reach) >> 4; cx <= (exploreTarget.getX() + reach) >> 4; cx++) {
+                total++;
+                if (!mc.level.hasChunk(cx, cz)) missing++;
+            }
+        }
+        if (missing > total / 20 && exploreTicks < 800) return;
+        BlockPos centre = exploreTarget;
+        exploreTarget = null;
+        StartBuildMod.LOGGER.info("[StartBuild] findsite area {} loaded ({} of {} chunks) after {} ticks",
+                centre, total - missing, total, exploreTicks);
+        searchAround(mc, centre);
+    }
+
+    private static int searchRadius(Minecraft mc, SchematicModel m) {
+        return Math.max(48, mc.options.getEffectiveRenderDistance() * 16 - Math.max(m.sizeX, m.sizeZ) - 16);
+    }
+
+    private static int searchAround(Minecraft mc, BlockPos centre) {
+        SchematicModel m = siteModel;
+        PlacementFinder.Wish wish = PlacementFinder.parseWish(siteWishText);
+        List<String> biomes = PlacementFinder.biomeWords(siteWishText);
+        int radius = searchRadius(mc, m);
+        long t0 = System.currentTimeMillis();
+        List<PlacementFinder.Result> found = new ArrayList<>();
+        int apart = Math.max(m.sizeX, m.sizeZ) + 24;
+        for (PlacementFinder.Result r : PlacementFinder.find(mc.level, centre, radius, m, wish, 20)) {
+            BlockPos o = r.origin();
+            if (shownSites.stream().anyMatch(s -> Math.abs(s.getX() - o.getX()) < apart && Math.abs(s.getZ() - o.getZ()) < apart)) {
+                continue;
+            }
+            if (!biomes.isEmpty() && !PlacementFinder.biomeMatches(
+                    mc.level.getBiome(o.offset(m.sizeX / 2, 0, m.sizeZ / 2)), biomes)) {
+                continue;
+            }
+            found.add(r);
+            if (found.size() >= 5) break;
+        }
+        StartBuildMod.LOGGER.info("[StartBuild] findsite {} wish={} biome={} centre={} radius={} -> {} site(s) in {} ms",
+                siteName, wish, biomes, centre, radius, found.size(), System.currentTimeMillis() - t0);
+        if (found.isEmpty()) {
+            StartBuildMod.chat("\u00A7eNo good new spot here"
+                    + (wish == PlacementFinder.Wish.WATER ? " next to water" : "") + ". Run /findsite again to look further away.");
+            return 0;
+        }
+        siteChoices = found;
+        siteIndex = 0;
         return showSite();
     }
 
@@ -307,6 +451,7 @@ final class NaturalSession {
         }
         previewName = siteName;
         previewOrigin = r.origin();
+        shownSites.add(r.origin());
         // A viewpoint: outside the near corner, above, looking in.
         BlockPos o = r.origin();
         StartBuildMod.runServerCommand("tp @s " + (o.getX() - 12) + " " + (o.getY() + 18) + " " + (o.getZ() - 12) + " -45 35");
@@ -373,7 +518,10 @@ final class NaturalSession {
         }
         ticksInWorld++;
         switch (state) {
-            case IDLE -> checkAutorun(mc);
+            case IDLE -> {
+                tickExplore(mc);
+                checkAutorun(mc);
+            }
             case PREPARING -> tickPreparing(mc);
             case PRE_ROLL -> {
                 if (--waitTicks <= 0) {

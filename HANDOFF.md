@@ -1,6 +1,6 @@
 # HANDOFF — Build Automation Tool (StartBuild 2.4.x)
 
-> Read this first. Last updated 2026-09-24, mod version **2.4.2**, branch `natural-builder-2.0`.
+> Read this first. Last updated 2026-09-24, mod version **2.5.0**, branch `natural-builder-2.0`.
 > The Baritone-era docs (1.x, why Baritone could not do this) are archived in `docs/`.
 
 ## 1. What it is
@@ -44,8 +44,8 @@ Progress goes to `logs/latest.log` only (never chat — chat is on camera):
 |---|---|
 | `/startbuild place <name>` | build with the corner at your feet |
 | `/previewbuild <name>` / `off` | Litematica ghost at your feet + report of what is in the way / hide |
-| `/findsite <name> [wish]` | search loaded chunks for the most natural spot (wish: "near a lake/river", "on a hill", default flat), show ghost there, teleport to a viewpoint |
-| `/findsite next` | next of up to 5 distinct spots |
+| `/findsite <name> [wish]` | most natural spot (wish: "near a lake/river", "on a hill", default flat; plus an optional biome: snowy, desert, cherry, jungle, taiga, badlands, swamp, ...), show ghost there, teleport to a viewpoint. First run searches around you; running it again for the same schematic flies 600-900 blocks away in a new direction and searches there. A biome wish flies to the nearest unused patch of that biome (server `findClosestBiome3d`). Sites already shown are never offered again |
+| `/findsite next` | next of up to 5 distinct spots; after the last one it explores a new area |
 | `/startbuild confirm` | build exactly where the preview/findsite put it |
 | `/stopbuild` | stop and save |
 | `/buildstatus` | progress |
@@ -100,7 +100,9 @@ Config fields that matter now: `ticksPerBlock` (0 = fastest, set to 0 on the own
 Proven live: 2.0 built haunted_80 past layer 1 (where every Baritone version stalled) at ~150 blocks/min,
 0 wrong orientations logged; the Halloween 80 build ran at ~110 blocks/min.
 
-Not yet verified in game (compiled, never run): 2.4.x site prep (`/fill` of trees/volume — watch for red
+Not yet verified in game (compiled, never run): 2.5.0 `/findsite` exploring/biome search (2.4.2 only ever
+re-found the same spot 2-3 blocks over, because each search centred on the viewpoint it had just teleported
+to), 2.4.x site prep (`/fill` of trees/volume — watch for red
 chat errors), gamerule names (26.2 snake_case), `/findsite` 2.4.2 spread/ranking, portal lighting,
 water bucket placement.
 

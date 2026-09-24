@@ -2,6 +2,8 @@ package com.graham.startbuild;
 
 import net.minecraft.client.multiplayer.ClientLevel;
 import net.minecraft.core.BlockPos;
+import net.minecraft.core.Holder;
+import net.minecraft.world.level.biome.Biome;
 import net.minecraft.world.level.block.state.BlockState;
 import net.minecraft.world.level.levelgen.Heightmap;
 import net.minecraft.world.level.material.Fluids;
@@ -35,6 +37,36 @@ final class PlacementFinder {
         if (t.matches(".*(river|lake|water|pond|shore|beach|bank|sea|ocean|coast).*")) return Wish.WATER;
         if (t.matches(".*(hill|mountain|cliff|view|high|peak|ridge).*")) return Wish.HILL;
         return Wish.FLAT;
+    }
+
+    /** Wish words -> biome id fragments ("snowy" -> snowy_plains, snowy_taiga, ...). Empty = any biome. */
+    private static final String[][] BIOME_WORDS = {
+            {"snow|snowy|winter", "snowy"}, {"ice|icy|frozen", "frozen"}, {"ice spikes", "ice_spikes"},
+            {"desert|sand dune", "desert"}, {"badlands|mesa|canyon", "badlands"}, {"jungle|bamboo", "jungle"},
+            {"savanna|acacia", "savanna"}, {"taiga|pine|spruce", "taiga"}, {"birch", "birch"},
+            {"dark forest|roofed", "dark_forest"}, {"cherry|sakura|pink", "cherry"}, {"flower", "flower"},
+            {"forest|woods|woodland", "forest"}, {"plains|grassland|field", "plains"}, {"meadow", "meadow"},
+            {"swamp|marsh|bog|mangrove", "swamp"}, {"mushroom", "mushroom"}, {"grove", "grove"},
+    };
+
+    static List<String> biomeWords(String text) {
+        String t = (text == null) ? "" : text.toLowerCase(Locale.ROOT);
+        List<String> out = new ArrayList<>();
+        for (String[] w : BIOME_WORDS) {
+            if (t.matches(".*\\b(" + w[0] + ")\\b.*") && !out.contains(w[1])) out.add(w[1]);
+        }
+        // "dark forest" / "ice spikes" are more specific than the generic word they contain.
+        if (out.contains("dark_forest")) out.remove("forest");
+        if (out.contains("ice_spikes")) out.remove("frozen");
+        return out;
+    }
+
+    static boolean biomeMatches(Holder<Biome> biome, List<String> words) {
+        String path = biome.unwrapKey().map(k -> k.identifier().getPath()).orElse("");
+        for (String w : words) {
+            if (path.contains(w)) return true;
+        }
+        return false;
     }
 
     /** @return up to `wanted` sites, best first. */
