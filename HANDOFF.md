@@ -4,7 +4,18 @@
 > conversation and understand, in a few minutes: what this is, where every file is, what the code does,
 > what has already been learned the hard way, what is verified vs not, and how to test a change.
 >
-> Last updated: 2026-09-23. Mod version: **1.29.0**.
+> Last updated: 2026-09-23. Mod version: **1.36.0**.
+>
+> **CURRENT STATUS: the goal is NOT met — the build is blocked.** Layer 0 always completes 100%, but the run
+> stalls on the first layer containing floating cells or non-default block states (measured: 28.7% of
+> `haunted_80` placed, 0 wrong blocks). Read **[PROBLEM.md](./PROBLEM.md)** first: it documents both causes
+> with Baritone source evidence, the whole history of attempted fixes, and what a real fix requires.
+>
+> **1.36.0 removed every `/setblock`** — Graham's requirement is that *every* block is placed by the
+> character, because pre-placed blocks appear from nowhere and look fake on video. So
+> `prePlaceUnbuildableBlocks()` and `completeMissingBlocks()` **no longer place anything** (they only measure
+> and report). Where this document still describes them as placing blocks, that text is historical:
+> **PROBLEM.md is current.**
 
 ---
 
@@ -18,14 +29,15 @@ schematic so it can be recorded as a YouTube Short. One in-game command does the
 ```
 
 1. Loads a schematic into **Litematica** and creates a placement.
-2. Pre-places any block that a click-based builder can never place (cells with no solid neighbour or whose
-   only neighbour is above them).
+2. Measures — but places nothing — the cells a click-based builder cannot reach (see step 6 and PROBLEM.md).
 3. Starts a **Flashback** replay recording.
 4. Hands the build to **Baritone**, which walks the player and places blocks block-by-block (no Litematica
    printer — the recording must look like a real, hand-built structure).
 5. Auto-restocks materials as Baritone pauses for them.
-6. Watches progress, recovers from real stalls, and — when Baritone reports done — runs a verification
-   pass that `/setblock`s anything still wrong so the build is 100% complete and correctly oriented.
+6. Watches progress and recovers from real stalls. **Since 1.36.0 nothing is placed for the player**: the
+   finishing pass only *reports* how many cells are still wrong, because every block must be placed by the
+   character (Graham's requirement — pre-placed blocks look fake on video). This is exactly why the build is
+   currently blocked; see PROBLEM.md.
 7. Stops and saves the recording `stopDelaySeconds` after the last block.
 
 **The core design constraint** that drives everything below: Baritone is a **click-based** builder. A block
@@ -62,7 +74,7 @@ MC 26.2 renames `ResourceLocation` to `net.minecraft.resources.Identifier`. Any 
 | `build.gradle`, `gradle.properties`, `settings.gradle`, `gradlew`, `gradlew.bat`, `gradle/wrapper/` | Standard Loom build. `gradle.properties` pins the versions in the table above and `version=`. Bump `version=` for each release. |
 | `src/main/resources/fabric.mod.json` | Mod metadata + entrypoint (`StartBuildMod`). |
 | `src/main/java/com/graham/startbuild/StartBuildMod.java` | Entrypoint. Registers all `/startbuild…`, `/stopbuild`, `/buildstatus`, `/buildprep`, `/buildsel`, `/buildsite` commands; the client tick handler; `runServerCommand`/`runClientCommand` (reflective, name-tolerant); the one-shot bridge self-test. |
-| `StartBuildSession.java` | **The heart — ~2600 lines.** The IDLE/PRE_ROLL/BUILDING/COOLDOWN state machine, the build flow, the restock loop, stall detection/recovery, the pre-pass and verification pass. Start here. |
+| `StartBuildSession.java` | **The heart — ~2600 lines.** The IDLE/PRE_ROLL/BUILDING/COOLDOWN state machine, the build flow, the restock loop, stall detection/recovery, the hard-cell measurement pass and the completion report (both place nothing — see the status note at the top). Start here. |
 | `StartBuildConfig.java` | Gson config at `config/startbuild.json`, reloaded every run. Every field documented in §6. |
 | `BaritoneBridge.java` | **All** Baritone access by reflection (no compile-time dependency). Settings get/set, build dispatch, cancel, selections, schematic box, notify. |
 | `BaritoneEventBridge.java` | A `java.lang.reflect.Proxy` listener on Baritone's event bus (block changes) + a `Settings.logger` wrapper (chat capture). Also the missing-materials accumulator. |
@@ -146,19 +158,25 @@ Baritone cannot place a cell that has no face to click. Two unclickable classes 
 For `haunted_80` (the test build: 80×80×64, 12,100 blocks, 110 types): 55 isolated + 55 only-above = 110
 unclickable cells; the other 11,990 have a down/horizontal neighbour.
 
-Three mechanisms guarantee a whole build:
+**How this is handled as of 1.36.0 — and why the build is currently blocked:**
 
 1. **`buildIgnoreDirection = true`** (set at start, restored at `reset()`). Baritone derives a placeable
    item's state from an upward-facing click, so a pillar item only ever yields `axis=y`; the schematic asks
-   for `axis=x`. Baritone's `assemble()` files every `axis=x` cell as a *missing material* (never a goal)
-   unless direction is ignored. Without this, **not one of the 1081 axis cells is ever placed and layer 1
-   can never close** — the primary historical bug. See §8.
-2. **`prePlaceUnbuildableBlocks()`** — before the recording and Baritone start, reads the whole schematic
-   into a solidity grid (`LitematicaBridge.solidGrid`) and `/setblock`s every cell with no down/horizontal
-   solid neighbour. This is what lets every layer close naturally, so **nothing is ever skipped**.
-3. **`completeMissingBlocks()`** — after "Done building" and before the recording stops, walks all cells,
-   compares world vs schematic by exact state, and `/setblock`s anything wrong (wrong orientation, an
-   un-reached neighbour, anything). Normally finds zero; it is the guarantee.
+   for `axis=x`. `assemble()` files every `axis=x` cell as a *missing material* — never a goal — unless
+   direction is ignored, and with only those cells left it logs `Unable to do it. Pausing.` This switch
+   **does** open that gate (measured: layer 1 went 118 → 153 placed), but the same loosened comparison also
+   lets the placement and correctness checks accept *any* axis, so the character places them with the
+   **wrong orientation** and Baritone marks them correct. Measured on layer 1: of 15 oriented cells,
+   **0 exact, 11 wrong**. See §8 and PROBLEM.md §4.
+2. **`prePlaceUnbuildableBlocks()`** — reads the schematic into a solidity grid
+   (`LitematicaBridge.solidGrid`) and, **since 1.36.0, only counts and reports** the cells that are hard for
+   Baritone (no block below, or a non-default state). It places **nothing**. Measured for `haunted_80`:
+   4,733 cells with no block below + 1,081 with a non-default orientation = 5,037 (777 overlap).
+3. **`completeMissingBlocks()`** — after "Done building" *and* from stall recovery. Since 1.36.0 it is a
+   **report only**: it counts the cells that still do not match the schematic and says so. It places nothing.
+
+The consequence is the current blocker: without those `/setblock`s, a layer containing floating cells or
+`axis=x` cells cannot close, Baritone stalls, and the run ends short. Full analysis in **PROBLEM.md**.
 
 `skipFailedLayers` is **deliberately not used** (Graham's hard requirement: no block may be skipped).
 
@@ -240,8 +258,11 @@ cell order `(y<<8)|(z<<4)|x`) — so "is the build complete" can always be measu
 - **`IBuilderProcess.buildOpenLitematic(int)` returns `void`** (verified with `javap`) — it cannot report
   refusal. `build(String, File, Vec3i)` returns `boolean`.
 - **`approxPlaceable()`** derives each item's placeable state from an upward-facing click → `axis=y`. This
-  is the root of the axis deadlock (§4). `buildIgnoreDirection=true` is the fix; the verification pass
-  corrects any resulting wrong orientation.
+  is the root of the axis gate (§4) and of Blocker B in PROBLEM.md. `buildIgnoreDirection=true` opens that
+  gate, but the **same** loosened comparison also governs the placement and correctness checks, so the block
+  gets placed with the wrong axis and is then considered correct. There is currently **no** way to get an
+  exact `axis=x` from stock Baritone (the old "verification pass corrects it" `/setblock` was removed in
+  1.36.0 at Graham's request).
 - **Layer advancement** (`onTick`): `layer++` only when `recalc()` finds zero incorrect positions in the
   window. `getMinLayer()` is that counter. So `layer=2/80` means "layers 0 and 1 are considered finished",
   not "building layer 2".
@@ -269,7 +290,7 @@ Each is a class of failure, with the tell-tale log line and the fix.
 | 6 | Missing list captured as ONE type | Baritone logs one message per missing type | accumulator in `observe()` |
 | 7 | `pack.mcmeta` "newer than 81 … missing min_format/max_format" every launch | `supported_formats.max_inclusive: 9999` claims a future version | removed the range; `pack_format: 107` is exact |
 | 8 | Build placed at y=-60, seemingly "buried" | **Not a bug.** The world is superflat (ground y=-61). The burial guard compares against the real surface, so it correctly does NOT fire. |
-| 9 |   free inventory slots + Gave 64 [X] + 
+| 9 |  free inventory slots + Gave 64 [X] + 
 ever arrived while Baritone re-pauses | clear+give raced the CLIENT's inventory view (both async, same tick), so every give landed on a full inventory and dropped | /item replace entity @s container.N with ... (atomic, server-side, no free-slot logic) |
 
 **The recurring meta-lesson:** every wrong diagnosis came from trusting Baritone's or the mod's own
@@ -278,24 +299,37 @@ self-reporting. The world files and the server-side log are the only two signals
 
 ---
 
-## 10. What is proven vs not (state as of 1.29.0)
+## 10. What is proven vs not (state as of 1.36.0)
 
 **Proven (measurement + source):**
-- The axis deadlock and its fix (Baritone 1.19.0 source + 0/1081 axis cells measured + "Starting layer 2"
-  absent from 14 logs).
-- 110 unclickable cells (55 isolated + 55 only-above) and that the rest have down/horizontal support.
+- Layers build bottom-up correctly while every cell has a block below it: layer 0 is **3317/3317 in every
+  single run**, across every version. That is the control which isolates the two blockers.
+- **Blocker A (floating cells):** 4,733 of 12,100 cells have no block below (`count-floating.mjs`), and
+  `placementGoal()` then returns `GoalPlace` = "stand on top of this cell", a mid-air goal a walking
+  character can never reach. Measured: of layer 1's 96 missing cells, **52 have air below**
+  (`missing-geometry.mjs`).
+- **Blocker B (orientation):** Baritone's `assemble()` gate only matches an item's UP-click state, so
+  `axis=x` cells never get a goal with `buildIgnoreDirection=false` ("Unable to do it. Pausing."), and with
+  it `true` they get placed with the **wrong** axis because the same comparison also governs correctness.
+  Measured: of layer 1's 15 oriented cells, **0 exact, 11 wrong** (`axis-cells.mjs`).
+- 1,081 cells carry a non-default state and 110 are unclickable — 5,037 hard cells in total (777 overlap).
 - The reflection accessors exist (`javap` against the real jars).
 - The `.litematic` and world formats (byte-exact round-trips).
+- The earlier fixes that are real and kept: `/item replace` restocking (1.30.0, replaces the async
+  `/clear`+`/give` race) and world-sampled progress (1.31.0, replaces Baritone's ~15×-under-reporting
+  block-change counter).
 
-**Not yet proven (needs one real run, cannot be produced statically):**
-- That Baritone actually reaches "Done building" (so the verification pass runs) now that the axis cells
-  are buildable and the 110 are pre-placed.
+**Not proven / open:**
+- Any way to have Baritone place a floating cell or an exact `axis=x` block **without** `/setblock`, using
+  stock Baritone 1.19.0. Both causes live inside `BuilderProcess` and are not reachable from settings.
 - Wall-clock build rate (~0.15 blocks/s on layer 1 was never fully explained).
 
-**The one residual risk:** if some cell class the pre-pass does not classify still blocks a layer, Baritone
-logs **`Unable to do it. Pausing.`** and the run ends via stall-recovery give-up *without* the verification
-pass, leaving the build short. If that line appears, the fix is to widen the pre-pass (or re-add
-`skipFailedLayers` purely as deadlock-safety with the verification pass still guaranteeing no gap).
+**What a fix requires** (detail in PROBLEM.md §6): a patched/forked Baritone that (1) gives a floating cell a
+neighbour-anchored, reachable goal instead of the mid-air `GoalPlace` — or builds the gravity-supported cells
+of a layer first so floating ones acquire an anchor; (2) separates the goal gate (loosen it, so Baritone plans
+and walks to an orientation-different cell) from the placement check (`possibleToPlace` /
+`hasAnyItemThatWouldPlace` must keep requiring an **exact** match, so the click has to produce the correct
+`axis=x`); and (3) keeps `valid()` strict so a wrongly-oriented block still counts as incorrect and is retried.
 
 ---
 

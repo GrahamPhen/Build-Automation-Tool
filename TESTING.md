@@ -1,7 +1,8 @@
 # Testing StartBuild
 
 A staged procedure so a failure tells you *which* part broke. Everything here is current as of
-StartBuild **1.2.0**.
+StartBuild **1.36.0** (see `PROBLEM.md` for the blocker currently preventing a completed build —
+layer 0 always succeeds, and the run stalls on the first layer with floating or `axis=x` cells).
 
 Paths (Prism instance `BuildRecording`):
 
@@ -188,10 +189,15 @@ nine hash-verified jars and repaired itself after a jar lock; the stock generato
 exact; the catalog tool passes its fixture suite and ran clean over a 32-file library;
 `--previews` output was inspected as an image; and both test scripts above pass.
 
-**Not verified: any of this in a running game.** StartBuild 1.1.0/1.2.0 behaviour - the event-based
-timing, auto-selection, episode mode, auto-resume and the shader split - has never run. Steps 1-5 are
-that test. If something misbehaves, send `/buildstatus` output, the chat log, and
-`GAMEDIR\logs\latest.log`.
+**Verified in a running game** (many runs, up to 1.36.0): the whole pipeline starts from one command —
+schematic loads and places, Flashback records, Baritone builds, materials auto-restock, stall detection and
+restart fire, the launcher installs and launches, and layer 0 completes 100% every time. What does **not**
+yet work is completing the build: the run stalls on the first layer that contains floating cells or
+non-default block states. That is documented with measurements in `PROBLEM.md`, not a test-procedure gap.
+
+**Measured, so do not re-litigate:** layer 0 = 3317/3317 on every run; total reaches ~28.7% before the
+stall; of layer 1's missing cells, 52 of 96 have air below; of layer 1's 15 oriented cells, 0 are exact and
+11 have the wrong axis. Use the tools in `tools/cottage/` (see the README) to reproduce any of these.
 
 **Specifically unverified:** the site finder and terrain prep. Their reported numbers were wrong
 until 1.18.0 (`/buildsite` measured the footprint from sizes read as coordinates), so any earlier
