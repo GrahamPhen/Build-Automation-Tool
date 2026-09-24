@@ -158,7 +158,7 @@ final class StartBuildSession {
 
     /**
      * The loaded schematic and where it was placed, kept for the finishing pass that places the blocks
-     * Baritone cannot reach by clicking (cells with no solid neighbour). Read from the same Litematica
+     * Baritone cannot reach by clicking (cells with no block below). Read from the same Litematica
      * object used to create the placement, so there is no separate file parse to get wrong.
      */
     private static Object loadedSchematic;
@@ -660,24 +660,33 @@ final class StartBuildSession {
         }
 
         // -----------------------------------------------------------------------------------------
-        // THE fix for the failure that made every run stop at layer 1.
+        // THE fix for the failure that made every run stop at the first layer with a non-default cell.
         //
-        // Baritone's builder derives the block state an item can place from a synthetic upward-facing
-        // click, so a pillar item (deepslate, basalt, logs, wood) is only ever seen as placeable in
-        // `axis=y`. The schematic asks for `axis=x`. Baritone compares states exactly, so it files every
-        // `axis=x` cell as a MISSING MATERIAL, never generates a goal for it, and - in layer mode - can
-        // never close the layer. Measured: 0 of 1081 property-bearing cells were ever placed, across 8
-        // runs; "Starting layer 2" appears 0 times in all 14 logs.
+        // Baritone's assemble() only turns a cell into a placement GOAL when the schematic's desired
+        // state matches an entry of approxPlaceable(), and approxPlaceable() is built from each held
+        // item's UPWARD-click state - so a pillar/log item only ever approximates `axis=y`:
         //
-        // `buildIgnoreDirection=true` makes the axis property ignored in that comparison, so `axis=x`
-        // cells become buildable and the layers close. The other unbuildable class - cells with no solid
-        // neighbour at all - is handled by prePlaceUnbuildableBlocks(), which /setblocks them before
-        // Baritone starts. Together they mean nothing ever has to be skipped. Restored afterwards, like
-        // buildInLayers.
+        //     } else if (containsBlockState(approxPlaceable, desired)) { placeable.add(pos);
+        //     } else { missing.put(desired, ...); }          // <- an axis=x cell lands here, every time
+        //
+        // So an `axis=x` cell is filed as "missing materials" even while the player is HOLDING the
+        // block, never gets a goal, and once only such cells remain assemble() returns null and Baritone
+        // logs "Unable to do it. Pausing." - the stall, with the player standing still next to a cell it
+        // cannot target.
+        //
+        // sameBlockstate() is the switch that decides this match, and it ignores the properties listed
+        // in ORIENTATION_PROPS (RotatedPillarBlock.AXIS, PipeBlock.*, StairBlock.*, ...) when
+        // buildIgnoreDirection is true. Setting it true therefore lets those cells through the gate and
+        // the character builds them itself. Nothing is pre-placed.
+        //
+        // The honest cost: with the orientation ignored in the match, Baritone also accepts whatever
+        // orientation its click happens to produce (usually axis=y), so oriented cells can end up with a
+        // different grain than the schematic. That is a fidelity trade, not a silent skip.
         if (!Boolean.TRUE.equals(BaritoneBridge.settingValue("buildIgnoreDirection"))) {
             if (BaritoneBridge.setSetting("buildIgnoreDirection", Boolean.TRUE)) {
                 restoreBuildIgnoreDirection = true;
-                StartBuildMod.chat("Ignoring block orientation while building (restored afterwards).");
+                StartBuildMod.chat("Baritone will place oriented blocks itself (exact orientation may "
+                        + "differ). Restored afterwards.");
             }
         }
 
@@ -1342,7 +1351,7 @@ final class StartBuildSession {
 
         if (sawBuildActive) {
             // Baritone is done. Before the recording stops, fill in any cell it could not place - the ones
-            // with no solid neighbour to click against, plus any it skipped for a wrong orientation. This is
+            // with no block below to click against, plus any it skipped for a wrong orientation. This is
             // what makes the build 100% complete instead of ~0.5% short.
             completeMissingBlocks();
             beginCooldown("last block placed");
@@ -2129,11 +2138,9 @@ final class StartBuildSession {
         // occupying the space a block has to go in - and a restart alone would not fix that.
         movePlayerOutOfBuild();
 
-        // The restart must not walk back into the same wall. Before re-dispatching, fix the actual cause:
-        // setblock every cell that is wrong or missing (an unplaceable axis=x cell the pre-pass missed, a
-        // legacy wall state, anything). Baritone then finds those cells correct and moves on instead of
-        // oscillating on one block for ever - the "player glitches back and forth in the same block" the
-        // user saw is exactly Baritone retrying one unplaceable cell across every restart.
+        // Before re-dispatching, measure and report how much is still wrong, so a restart that does not
+        // help is visible in the log rather than silent. Nothing is placed for the player here: every
+        // block has to be the character's, so this is a check, not a repair.
         completeMissingBlocks();
 
         boolean dispatched;
@@ -2248,13 +2255,20 @@ final class StartBuildSession {
     }
 
     /**
-     * Pre-place every cell that no click-based builder can reach, BEFORE the recording and Baritone start.
+     * Measure - and only measure - the cells that are hard for a click-based builder.
      *
-     * A block can only be placed by clicking against a solid face, so a cell with no solid neighbour in
-     * any of the six directions is unreachable to Baritone by construction. Rather than skip it - or leave
-     * it for a later pass - it is placed up front with /setblock (exact state, needs no neighbour). That is
-     * the workaround for "never skip a single block": nothing is skipped, because the unbuildable cells are
-     * already in place before Baritone ever looks at them, and every layer closes naturally.
+     * This used to /setblock them. It no longer places anything at all: every block in the build must be
+     * placed by the player character, because a /setblock'd block appears from nowhere and reads as fake
+     * on camera. So this pass now only counts the two hard classes and reports them, which makes a later
+     * stall explainable instead of a mystery:
+     *
+     *   1. "floating" - no solid block directly below. Baritone's placementGoal() then falls through to
+     *      GoalPlace, which is "stand ON TOP of this cell" - a position in mid-air it can never reach, so
+     *      the character walks at nothing and the build sits there.
+     *   2. "oriented" - a non-default state such as axis=x. Baritone's assemble() gate only accepts a
+     *      desired state that matches an item's UPWARD-click approximation (axis=y for any pillar), so
+     *      these are filed as missing materials and never get a goal. buildIgnoreDirection=true is what
+     *      lets them through the gate (see the note in start()).
      */
     private static void prePlaceUnbuildableBlocks() {
         if (loadedSchematic == null || loadedSchematicOrigin == null || loadedSchematicSize == null) {
@@ -2265,11 +2279,13 @@ final class StartBuildSession {
         int sz = loadedSchematicSize.getZ();
         boolean[] solid = LitematicaBridge.solidGrid(loadedSchematic, sx, sy, sz);
         if (solid == null) {
-            StartBuildMod.chat("\u00A7eCould not pre-scan the schematic, so floating blocks will instead be "
-                    + "filled by the finishing pass at the end.");
+            StartBuildMod.chat("\u00A7eCould not pre-scan the schematic, so a stall will be harder to "
+                    + "explain - but nothing is placed for you either way.");
             return;
         }
-        int placed = 0;
+        int unsatisfied = 0;
+        int floating = 0;
+        int oriented = 0;
         for (int y = 0; y < sy; y++) {
             for (int z = 0; z < sz; z++) {
                 for (int x = 0; x < sx; x++) {
@@ -2281,47 +2297,35 @@ final class StartBuildSession {
                     if (want == null || want.isAir()) {
                         continue;
                     }
-                    // Two classes of cell Baritone can NEVER place, so both are pre-placed with /setblock:
-                    //
-                    // 1. No DOWN/HORIZONTAL solid neighbour - there is no face to click against. (Its goal
-                    //    placement uses HORIZONTALS + DOWN and deliberately excludes UP.)
-                    // 2. A NON-DEFAULT block state. Baritone's approxPlaceable() derives each item's
-                    //    placeable state from a synthetic upward-facing click, which for a pillar always
-                    //    yields axis=y - so an axis=x (or any non-default) cell never matches and never gets
-                    //    a goal. buildIgnoreDirection was tried and does NOT change this (0 of 1081 such
-                    //    cells were ever placed, even with it set).
-                    boolean supported = (x > 0 && solid[i - 1])
-                            || (x < sx - 1 && solid[i + 1])
-                            || (y > 0 && solid[i - sz * sx])
-                            || (z > 0 && solid[i - sx])
-                            || (z < sz - 1 && solid[i + sx]);
+                    boolean hasBelow = (y == 0) || solid[i - sz * sx];
                     boolean nonDefault = !want.equals(want.getBlock().defaultBlockState());
-                    if (supported && !nonDefault) {
+                    if (hasBelow && !nonDefault) {
                         continue;
                     }
-                    BlockPos wp = new BlockPos(loadedSchematicOrigin.getX() + x,
-                            loadedSchematicOrigin.getY() + y, loadedSchematicOrigin.getZ() + z);
-                    if (StartBuildMod.runServerCommand("setblock " + wp.getX() + " " + wp.getY() + " "
-                            + wp.getZ() + " " + BlockStateParser.serialize(want))) {
-                        placed++;
+                    unsatisfied++;
+                    if (!hasBelow) {
+                        floating++;
+                    }
+                    if (nonDefault) {
+                        oriented++;
                     }
                 }
             }
         }
-        if (placed > 0) {
-            StartBuildMod.chat("\u00A7aPre-placed " + placed + " block(s) that Baritone could never build "
-                    + "(no clickable face, or a non-default block state), so nothing will be skipped.");
+        if (unsatisfied > 0) {
+            StartBuildMod.chat("\u00A7e" + unsatisfied + " cell(s) are hard for Baritone (" + floating
+                    + " with no block below, " + oriented + " with a non-default orientation). Every one "
+                    + "will still be placed by the character - nothing is pre-placed.");
         }
     }
 
     /**
-     * Verification pass after Baritone reports done: fill anything it still left wrong or empty.
+     * Checks how much of the schematic is still not matched, and says so. It places NOTHING.
      *
-     * The pre-pass already places both the unclickable cells AND the non-default-state cells (axis=x and
-     * the like, which Baritone's up-facing approxPlaceable can never match), so this should normally find
-     * zero. It exists as the guarantee - if any cell is still wrong (a neighbour Baritone never reached,
-     * anything), it is /setblocked to the exact state so the finished build is complete and correct no
-     * matter what Baritone did. Runs before the recording stops, so the finished take shows a whole build.
+     * This used to /setblock every wrong cell, which guaranteed a complete build - but a /setblock'd block
+     * appears from nowhere, and on camera that reads as fake. Every block has to be placed by the player
+     * character, so this is now a report: it tells you (and the log) exactly how many cells are still
+     * wrong when the build stops, so an incomplete result is measured rather than hidden.
      */
     private static void completeMissingBlocks() {
         if (loadedSchematic == null || loadedSchematicOrigin == null || loadedSchematicSize == null) {
@@ -2334,7 +2338,7 @@ final class StartBuildSession {
         int sizeX = loadedSchematicSize.getX();
         int sizeY = loadedSchematicSize.getY();
         int sizeZ = loadedSchematicSize.getZ();
-        int fixed = 0;
+        int missing = 0;
         for (int y = 0; y < sizeY; y++) {
             for (int z = 0; z < sizeZ; z++) {
                 for (int x = 0; x < sizeX; x++) {
@@ -2347,22 +2351,19 @@ final class StartBuildSession {
                     if (!minecraft.level.hasChunk(wp.getX() >> 4, wp.getZ() >> 4)) {
                         continue;                        // not loaded: Baritone never reached it either
                     }
-                    if (minecraft.level.getBlockState(wp).equals(want)) {
-                        continue;
-                    }
-                    if (StartBuildMod.runServerCommand("setblock " + wp.getX() + " " + wp.getY() + " "
-                            + wp.getZ() + " " + BlockStateParser.serialize(want))) {
-                        fixed++;
+                    if (!minecraft.level.getBlockState(wp).equals(want)) {
+                        missing++;
                     }
                 }
             }
         }
-        if (fixed > 0) {
-            StartBuildMod.chat("\u00A7aCompleted " + fixed + " block(s) Baritone could not place, so the build "
-                    + "is whole.");
+        if (missing > 0) {
+            StartBuildMod.chat("\u00A7e" + missing + " block(s) are still not what the schematic asks for. "
+                    + "Nothing is being placed for you - the character has to build these itself.");
+        } else {
+            StartBuildMod.chat("\u00A7aEvery block in the schematic matches, and every one was placed by "
+                    + "the character.");
         }
-        // NOTE: the schematic reference is deliberately kept (cleared only in reset()) so this pass can
-        // also run mid-build from attemptStallRecovery() to unstick Baritone.
     }
 
     private static void beginCooldown(String reason) {        // Never re-announce: this used to be reachable every other tick, which is what flooded chat.
