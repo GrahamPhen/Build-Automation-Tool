@@ -238,6 +238,7 @@ final class RenderDirector {
     private static Path finalOutput, pendingMusic;
     private static String encoderUsed = "libx264";
     private static Thread mixing;
+    private static double musicStart;
 
     private static void tickExporting() throws Exception {
         Class<?> fb = Class.forName("com.moulberry.flashback.Flashback");
@@ -249,7 +250,7 @@ final class RenderDirector {
             StartBuildMod.LOGGER.info("[StartBuild] render: adding music {} to {}", music.getFileName(), out.getFileName());
             mixing = new Thread(() -> {
                 long t0 = System.currentTimeMillis();
-                String err = MusicMixer.mix(video, music, out, enc, 16_000_000);
+                String err = MusicMixer.mix(video, music, out, enc, 16_000_000, musicStart);
                 StartBuildMod.LOGGER.info("[StartBuild] render: music {} ({} s)", err == null ? "added" : "FAILED - " + err,
                         (System.currentTimeMillis() - t0) / 1000);
             }, "startbuild-music");
@@ -445,7 +446,15 @@ final class RenderDirector {
         // 80x timelapse that was a garbled blip.)
         Path music = null;
         if (job.containsKey("music")) {
-            music = FabricLoader.getInstance().getConfigDir().resolve("startbuild-music").resolve(job.get("music") + ".ogg");
+            // Any audio file named like that in config/startbuild-music (mp3, ogg, m4a, wav...).
+            Path dir = FabricLoader.getInstance().getConfigDir().resolve("startbuild-music");
+            music = dir.resolve(job.get("music") + ".ogg");
+            try (var files = Files.list(dir)) {
+                String want = job.get("music").toLowerCase();
+                music = files.filter(f -> f.getFileName().toString().toLowerCase().replaceAll("\\.[a-z0-9]+$", "").equals(want))
+                        .findFirst().orElse(music);
+            } catch (Exception ignored) {
+            }
             if (!Files.isRegularFile(music)) {
                 StartBuildMod.LOGGER.warn("[StartBuild] render: no music file {}", music);
                 music = null;
@@ -477,6 +486,7 @@ final class RenderDirector {
         Files.createDirectories(folder);
         finalOutput = folder.resolve(job.getOrDefault("output", "build-short-" + style + ".mp4"));
         pendingMusic = music;
+        musicStart = num("musicStart", 0);
         output = music == null ? finalOutput
                 : folder.resolve(finalOutput.getFileName().toString().replace(".mp4", "-silent.mp4"));
         Files.deleteIfExists(output);

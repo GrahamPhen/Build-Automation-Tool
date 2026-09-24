@@ -20,8 +20,24 @@ final class MusicMixer {
     private MusicMixer() {
     }
 
+    /**
+     * Standalone use (no game needed - Flashback's jar carries the FFmpeg natives):
+     *   java -cp "Flashback.jar;<mod classes>" com.graham.startbuild.MusicMixer video music out [startSec] [encoder]
+     */
+    public static void main(String[] args) {
+        double start = args.length > 3 ? Double.parseDouble(args[3]) : 0;
+        String enc = args.length > 4 ? args[4] : "h264_nvenc";
+        String err = mix(Path.of(args[0]), Path.of(args[1]), Path.of(args[2]), enc, 16_000_000, start);
+        System.out.println(err == null ? "ok " + args[2] : "FAILED " + err);
+    }
+
     /** @return null when done, or why it failed. Blocking; run it off the game thread. */
     static String mix(Path video, Path music, Path out, String encoder, int bitrate) {
+        return mix(video, music, out, encoder, bitrate, 0);
+    }
+
+    /** As above, starting the music `startSec` into the track (skip a slow intro to where it gets going). */
+    static String mix(Path video, Path music, Path out, String encoder, int bitrate, double startSec) {
         Object vg = null, ag = null, rec = null;
         try {
             Class<?> grabberCls = Class.forName("org.bytedeco.javacv.FFmpegFrameGrabber");
@@ -32,6 +48,8 @@ final class MusicMixer {
             ag = grabberCls.getConstructor(String.class).newInstance(music.toString());
             call(ag, "setSampleFormat", int.class, 1);                     // AV_SAMPLE_FMT_S16, interleaved shorts
             call(ag, "start");
+            long offset = (long) (startSec * 1_000_000);
+            if (offset > 0) call(ag, "setTimestamp", long.class, offset);
             int w = (int) call(vg, "getImageWidth"), h = (int) call(vg, "getImageHeight");
             double fps = (double) call(vg, "getFrameRate");
             int rate = (int) call(ag, "getSampleRate"), channels = Math.max(1, (int) call(ag, "getAudioChannels"));
@@ -60,9 +78,9 @@ final class MusicMixer {
                 long vt = (long) ts.invoke(vg);
                 record.invoke(rec, frame);
                 // Keep the music up to the video's clock, so the file is interleaved.
-                while (!audioDone && (long) ts.invoke(ag) <= vt) {
+                while (!audioDone && (long) ts.invoke(ag) - offset <= vt) {
                     Object a = grabSamples.invoke(ag);
-                    long at = (long) ts.invoke(ag);
+                    long at = (long) ts.invoke(ag) - offset;
                     if (a == null || at > videoLen) {
                         audioDone = true;
                         break;
