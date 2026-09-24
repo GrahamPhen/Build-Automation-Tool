@@ -335,16 +335,8 @@ final class NaturalSession {
         }
         String name = previewName;
         BlockPos at = previewOrigin;
-        // Build wherever the ghost is NOW - it may have been moved with Litematica's own controls.
-        Object[] sel = LitematicaBridge.selectedPlacement();
-        if (sel != null && sel[0] instanceof BlockPos moved) {
-            if (!"NONE".equals(sel[1]) || !"NONE".equals(sel[2])) {
-                StartBuildMod.chat("\u00A7eThe preview is rotated or mirrored - that is not supported yet. "
-                        + "Reset rotation/mirror in Litematica (M > Placements > Configure) and confirm again.");
-                return 0;
-            }
-            at = moved;
-        }
+        // Build exactly where the preview was put. (Reading Litematica's live placement back proved unreliable:
+        // it returned the viewpoint the player was teleported to, 18 blocks up, so the build floated.)
         previewName = null;
         previewOrigin = null;
         return start(name, at, false);     // start() clears the ghost so it never appears on camera
@@ -444,11 +436,11 @@ final class NaturalSession {
             StartBuildMod.LOGGER.info("[StartBuild] site prep: {}", prep.describe());
             // Whole trees near the build go (not just the leaves inside it), then the build volume is emptied.
             int m = 6, top = origin.getY() + model.sizeY + 12;
-            int x1 = origin.getX(), z1 = origin.getZ(), x2 = x1 + model.sizeX - 1, z2 = z1 + model.sizeZ - 1;
+            int bx1 = origin.getX(), bz1 = origin.getZ(), bx2 = bx1 + model.sizeX - 1, bz2 = bz1 + model.sizeZ - 1;
             long n = 0;
-            n += fillSliced(x1 - m, origin.getY(), z1 - m, x2 + m, top, z2 + m, "air replace #minecraft:leaves");
-            n += fillSliced(x1 - m, origin.getY(), z1 - m, x2 + m, top, z2 + m, "air replace #minecraft:logs");
-            n += fillSliced(x1, origin.getY(), z1, x2, origin.getY() + model.sizeY, z2, "air");
+            n += fillSliced(bx1 - m, origin.getY(), bz1 - m, bx2 + m, top, bz2 + m, "air replace #minecraft:leaves");
+            n += fillSliced(bx1 - m, origin.getY(), bz1 - m, bx2 + m, top, bz2 + m, "air replace #minecraft:logs");
+            n += fillSliced(bx1, origin.getY(), bz1, bx2, origin.getY() + model.sizeY, bz2, "air");
             StartBuildMod.LOGGER.info("[StartBuild] site cleared: {} fill command(s)", n);
             waitTicks = 0;
             config.prepTerrain = false;          // once per run (config is reloaded at the next start)
@@ -499,6 +491,11 @@ final class NaturalSession {
             return;
         }
 
+        if (builder.isFinished() && builder.placed == 0) {
+            abort("nothing could be placed at " + origin.toShortString()
+                    + " - the build has no ground to start from there. Try another spot.");
+            return;
+        }
         if (builder.isFinished()) {
             // Final check against the world: anything wrong is reopened and built again (twice at most).
             int reopened = (rechecks < 2) ? builder.recheckAll(mc.level) : 0;
