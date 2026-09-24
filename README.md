@@ -1,5 +1,7 @@
 # Build Automation Tool
 
+> **Superseded.** StartBuild 2.x replaced Baritone with its own builder — see `HANDOFF.md` at the repo root.
+
 Automates building a Minecraft schematic so it can be recorded as a YouTube Short — place the schematic,
 run one command, and the character builds the whole thing (recorded by Flashback) with no further input.
 
