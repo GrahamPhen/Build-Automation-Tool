@@ -24,3 +24,6 @@ Thumbs.db
 # Generated schematic tool output
 tools/cottage/out/
 examples/*.png
+
+# Secrets
+tools/picture2schem/anthropic-key.txt
