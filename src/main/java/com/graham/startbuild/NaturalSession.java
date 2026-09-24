@@ -393,10 +393,17 @@ final class NaturalSession {
         for (int cz = (exploreTarget.getZ() - reach) >> 4; cz <= (exploreTarget.getZ() + reach) >> 4; cz++) {
             for (int cx = (exploreTarget.getX() - reach) >> 4; cx <= (exploreTarget.getX() + reach) >> 4; cx++) {
                 total++;
-                if (!mc.level.hasChunk(cx, cz)) missing++;
+                if (!PlacementFinder.loaded(mc.level, cx, cz)) missing++;
             }
         }
-        if (missing > total / 20 && exploreTicks < 800) return;
+        // At least 2 s after the teleport (the old area's chunks are still there right after it), then until
+        // 95% of the new area has arrived.
+        if ((exploreTicks < 40 || missing > total / 20) && exploreTicks < 800) return;
+        if (missing > total / 2) {
+            exploreTarget = null;
+            StartBuildMod.chat("§eThe area did not load in time. Run /findsite again.");
+            return;
+        }
         BlockPos centre = exploreTarget;
         exploreTarget = null;
         StartBuildMod.LOGGER.info("[StartBuild] findsite area {} loaded ({} of {} chunks) after {} ticks",

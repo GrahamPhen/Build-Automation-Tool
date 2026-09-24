@@ -1,6 +1,6 @@
 # HANDOFF — Build Automation Tool (StartBuild 2.4.x)
 
-> Read this first. Last updated 2026-09-24, mod version **2.5.0**, branch `natural-builder-2.0`.
+> Read this first. Last updated 2026-09-24, mod version **2.5.1**, branch `natural-builder-2.0`.
 > The Baritone-era docs (1.x, why Baritone could not do this) are archived in `docs/`.
 
 ## 1. What it is
@@ -100,9 +100,13 @@ Config fields that matter now: `ticksPerBlock` (0 = fastest, set to 0 on the own
 Proven live: 2.0 built haunted_80 past layer 1 (where every Baritone version stalled) at ~150 blocks/min,
 0 wrong orientations logged; the Halloween 80 build ran at ~110 blocks/min.
 
-Not yet verified in game (compiled, never run): 2.5.0 `/findsite` exploring/biome search (2.4.2 only ever
-re-found the same spot 2-3 blocks over, because each search centred on the viewpoint it had just teleported
-to), 2.4.x site prep (`/fill` of trees/volume — watch for red
+`/findsite` exploring/biome search: 2.5.0 ran live and travelled correctly, but searched before the new
+area's chunks had arrived — `ClientLevel.hasChunk` is true for the client's empty placeholder chunk, whose
+ground reads y -64, so sites landed in caves. 2.5.1 checks for real chunk data (`PlacementFinder.loaded`)
+and waits for 95% of the area; not yet re-run. (2.4.2 only ever re-found the same spot 2-3 blocks over,
+because each search centred on the viewpoint it had just teleported to.)
+
+Not yet verified in game (compiled, never run): 2.4.x site prep (`/fill` of trees/volume — watch for red
 chat errors), gamerule names (26.2 snake_case), `/findsite` 2.4.2 spread/ranking, portal lighting,
 water bucket placement.
 

@@ -5,6 +5,8 @@ import net.minecraft.core.BlockPos;
 import net.minecraft.core.Holder;
 import net.minecraft.world.level.biome.Biome;
 import net.minecraft.world.level.block.state.BlockState;
+import net.minecraft.world.level.chunk.EmptyLevelChunk;
+import net.minecraft.world.level.chunk.LevelChunk;
 import net.minecraft.world.level.levelgen.Heightmap;
 import net.minecraft.world.level.material.Fluids;
 
@@ -63,10 +65,23 @@ final class PlacementFinder {
 
     static boolean biomeMatches(Holder<Biome> biome, List<String> words) {
         String path = biome.unwrapKey().map(k -> k.identifier().getPath()).orElse("");
+        // "plains" must not land in snowy_plains: cold variants only when the wish asked for cold.
+        boolean cold = path.contains("snowy") || path.contains("frozen") || path.contains("ice");
+        if (cold && !words.contains("snowy") && !words.contains("frozen") && !words.contains("ice_spikes")) return false;
         for (String w : words) {
             if (path.contains(w)) return true;
         }
         return false;
+    }
+
+    /**
+     * True once the chunk's real data has reached the client. ClientLevel.hasChunk is not enough: the client
+     * hands out an empty placeholder chunk for anything not received yet, whose ground reads as the world
+     * bottom (y -64) - that made sites land in caves.
+     */
+    static boolean loaded(ClientLevel level, int cx, int cz) {
+        LevelChunk c = level.getChunkSource().getChunk(cx, cz, false);
+        return c != null && !(c instanceof EmptyLevelChunk);
     }
 
     /** @return up to `wanted` sites, best first. */
@@ -79,11 +94,15 @@ final class PlacementFinder {
         for (int dz = 0; dz < size; dz++) {
             for (int dx = 0; dx < size; dx++) {
                 int wx = x0 + dx, wz = z0 + dz, i = dz * size + dx;
-                if (!level.hasChunk(wx >> 4, wz >> 4)) {
+                if (!loaded(level, wx >> 4, wz >> 4)) {
                     surf[i] = Integer.MIN_VALUE;
                     continue;
                 }
                 int h = level.getHeight(Heightmap.Types.MOTION_BLOCKING_NO_LEAVES, wx, wz) - 1;
+                if (h < level.getMinY()) {               // no ground at all (void / not really there)
+                    surf[i] = Integer.MIN_VALUE;
+                    continue;
+                }
                 surf[i] = h;
                 BlockState s = level.getBlockState(new BlockPos(wx, h, wz));
                 water[i] = !s.getFluidState().isEmpty() && s.getFluidState().getType().isSame(Fluids.WATER);
