@@ -220,6 +220,27 @@ final class StartBuildConfig {
      */
     public boolean buildInLayers = true;
 
+    // ------------------------------------------------------------------ natural builder (2.0)
+
+    /** Extra ticks between placements (on top of aim + check). 1 = about 4-5 blocks a second. */
+    public int ticksPerBlock = 1;
+
+    /** Schematic used when the build is started automatically (desktop icon / autorun file). */
+    public String autoRunSchematic = "haunted_80";
+
+    /** Gap between successive automatic build sites, so every run starts on empty ground. */
+    public int autoSiteSpacing = 40;
+
+    /** Where the last automatic build was put (null before the first one). */
+    public Integer lastAutoOriginX = null;
+    public Integer lastAutoOriginZ = null;
+
+    /** Before recording: daylight and clear weather, so the replay is watchable. */
+    public boolean videoDaylight = true;
+
+    /** Seconds to wait after joining the world before an automatic start. */
+    public double autoRunDelaySeconds = 8.0;
+
     private static final Gson GSON = new GsonBuilder().setPrettyPrinting().create();
 
     private static Path path() {

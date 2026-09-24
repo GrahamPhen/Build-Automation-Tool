@@ -163,6 +163,31 @@ final class LitematicaBridge {
         }
     }
 
+    /**
+     * Removes every Litematica placement, so no ghost overlay of an earlier build is drawn (and recorded).
+     * @return how many were removed, or -1 on failure.
+     */
+    static int clearPlacements() {
+        try {
+            Class<?> dataManager = Reflect.find(DATA_MANAGER);
+            if (dataManager == null) {
+                return -1;
+            }
+            Object manager = Reflect.method(dataManager, "getSchematicPlacementManager").invoke(null);
+            if (manager == null) {
+                return -1;
+            }
+            int n = placementCount(manager, manager.getClass());
+            if (n > 0) {
+                Reflect.method(manager.getClass(), "clear").invoke(manager);
+            }
+            return n;
+        } catch (Throwable t) {
+            StartBuildMod.LOGGER.warn("[StartBuild] could not clear Litematica placements: {}", Reflect.describe(t));
+            return -1;
+        }
+    }
+
     private static List<?> placements(Object manager, Class<?> managerClass) {
         try {
             Method all = Reflect.method(managerClass, "getAllSchematicsPlacements");

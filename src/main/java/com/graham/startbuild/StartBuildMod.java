@@ -84,6 +84,24 @@ public class StartBuildMod implements ClientModInitializer {
                             .then(ClientCommands.argument("name", StringArgumentType.greedyString())
                                     .executes(context -> {
                                         lastCommandSource = context.getSource();
+                                        return NaturalSession.startHere(StringArgumentType.getString(context, "name"));
+                                    })))
+                    // Hands-free: build on a fresh patch of ground next to the last automatic build.
+                    .then(ClientCommands.literal("auto")
+                            .executes(context -> {
+                                lastCommandSource = context.getSource();
+                                return NaturalSession.startAuto(null);
+                            })
+                            .then(ClientCommands.argument("name", StringArgumentType.greedyString())
+                                    .executes(context -> {
+                                        lastCommandSource = context.getSource();
+                                        return NaturalSession.startAuto(StringArgumentType.getString(context, "name"));
+                                    })))
+                    // The previous Baritone-driven flow, kept for comparison.
+                    .then(ClientCommands.literal("baritone")
+                            .then(ClientCommands.argument("name", StringArgumentType.greedyString())
+                                    .executes(context -> {
+                                        lastCommandSource = context.getSource();
                                         return StartBuildSession.startFromLitematica(StringArgumentType.getString(context, "name"));
                                     })))
                     // The normal-world flow: pick a site nearby, level the ground, place it there, build.
@@ -109,6 +127,9 @@ public class StartBuildMod implements ClientModInitializer {
             dispatcher.register(ClientCommands.literal("stopbuild")
                     .executes(context -> {
                         lastCommandSource = context.getSource();
+                        if (NaturalSession.isActive()) {
+                            return NaturalSession.stop();
+                        }
                         return StartBuildSession.stopNow();
                     }));
 
@@ -168,6 +189,7 @@ public class StartBuildMod implements ClientModInitializer {
             dispatcher.register(ClientCommands.literal("buildstatus")
                     .executes(context -> {
                         lastCommandSource = context.getSource();
+                        NaturalSession.status();
                         return StartBuildSession.status();
                     }));
 
@@ -199,6 +221,7 @@ public class StartBuildMod implements ClientModInitializer {
             initialiseBridgesOnce(client);
             maybeReportSelfTest();
             StartBuildSession.tick();
+            NaturalSession.tick();
         });
     }
 
