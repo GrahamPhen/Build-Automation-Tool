@@ -101,6 +101,7 @@ final class NaturalBuilder {
     /** Set by fly() when the player is blocked mid-route: MOVE plans the route again. */
     private boolean replan;
     private int scaffoldCleanups;
+    private long cleanupWaitUntil;
     /** How often each cell has had temporary support planned (kept through recover(), so a loop stays broken). */
     private final Map<Integer, Integer> scaffoldPlans = new HashMap<>();
     private static final int MAX_SCAFFOLD_PLANS = 4;
@@ -397,9 +398,13 @@ final class NaturalBuilder {
             }
             return true;
         });
+        if (!scaffolds.isEmpty() && ticks < cleanupWaitUntil) {
+            return null;                    // between clean-up passes: hover
+        }
         if (!scaffolds.isEmpty() && scaffoldCleanups++ < 12) {
             scaffoldRetryAt.clear();
-            return null;                    // hover a tick; step 2 above picks them up next time
+            cleanupWaitUntil = ticks + 40;  // passes 2 s apart (12 back-to-back ticks gave up at once)
+            return null;                    // step 2 above picks them up next time
         }
         if (!scaffolds.isEmpty()) {
             StartBuildMod.LOGGER.warn("[StartBuild] {} temporary block(s) could not be removed: {}", scaffolds.size(), scaffolds);
@@ -654,12 +659,19 @@ final class NaturalBuilder {
                 if (a.scaffold) scaffolds.remove(a.target);
                 return false;
             }
-            Direction face = bestVisibleFace(level, player, a.target);
-            a.against = a.target;
-            a.face = face;
-            a.hit = Vec3.atCenterOf(a.target).add(face.getStepX() * 0.5, face.getStepY() * 0.5, face.getStepZ() * 0.5);
-            a.stand = standFor(level, player, a.hit, a.target, a.target);
-            return a.stand != null;
+            // Every face, the one towards the player first: judging only that one left 24 supports standing
+            // in open air after a take (the player was up at the roof, their near faces were covered).
+            for (Direction face : facesByPreference(level, player, a.target)) {
+                Vec3 hit = Vec3.atCenterOf(a.target).add(face.getStepX() * 0.5, face.getStepY() * 0.5, face.getStepZ() * 0.5);
+                Vec3 stand = standFor(level, player, hit, a.target, a.target);
+                if (stand == null) continue;
+                a.against = a.target;
+                a.face = face;
+                a.hit = hit;
+                a.stand = stand;
+                return true;
+            }
+            return false;
         }
 
         if (a.kind == Kind.USE || a.kind == Kind.USE_AIR) {
@@ -788,7 +800,8 @@ final class NaturalBuilder {
         Vec3 best = null;
         double bestCost = Double.MAX_VALUE;
         double[] radii = {2.2, 3.0, 1.4};
-        double[] heights = {1.6, 2.4, 0.9, 3.2};
+        // Above first (reads naturally); below last, for a bottom face under an overhang.
+        double[] heights = {1.6, 2.4, 0.9, 3.2, -1.2, -2.0};
         for (double h : heights) {
             for (double r : radii) {
                 for (int k = 0; k < 12; k++) {
@@ -1188,21 +1201,16 @@ final class NaturalBuilder {
     }
 
     /** The face turned most towards the player, preferring faces that are open to the air (what you can see). */
-    private Direction bestVisibleFace(ClientLevel level, LocalPlayer player, BlockPos p) {
-        Vec3 eye = player.getEyePosition();
-        Vec3 c = Vec3.atCenterOf(p);
-        Direction best = Direction.UP;
-        double bestDot = -99;
-        Vec3 to = eye.subtract(c).normalize();
-        for (Direction d : Direction.values()) {
+    /** Open faces first, each group ordered by how directly it faces the player; covered faces last. */
+    private List<Direction> facesByPreference(ClientLevel level, LocalPlayer player, BlockPos p) {
+        Vec3 to = player.getEyePosition().subtract(Vec3.atCenterOf(p)).normalize();
+        List<Direction> out = new ArrayList<>(List.of(Direction.values()));
+        java.util.function.ToDoubleFunction<Direction> score = d -> {
             double dot = d.getStepX() * to.x + d.getStepY() * to.y + d.getStepZ() * to.z;
-            if (!level.getBlockState(p.relative(d)).canBeReplaced()) dot -= 3;   // covered face
-            if (dot > bestDot) {
-                bestDot = dot;
-                best = d;
-            }
-        }
-        return best;
+            return level.getBlockState(p.relative(d)).canBeReplaced() ? dot : dot - 3;   // covered face
+        };
+        out.sort((x, y) -> Double.compare(score.applyAsDouble(y), score.applyAsDouble(x)));
+        return out;
     }
 
     // ================================================================== helpers
