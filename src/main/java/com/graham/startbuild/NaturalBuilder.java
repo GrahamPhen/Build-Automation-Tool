@@ -147,6 +147,7 @@ final class NaturalBuilder {
         Vec3 hit;                       // where on that face
         Vec3 stand;                     // where the player should be (feet)
         Item item;
+        int facingTries;                // PLACE: moves back to the stand because the facing was off
 
         Action(Kind kind, BlockPos target, BlockState want, boolean scaffold) {
             this.kind = kind;
@@ -294,6 +295,25 @@ final class NaturalBuilder {
                 }
                 boolean aimed = aim(player, current.hit) || phaseTicks > 12;
                 if (aimed && ticks - lastActTick >= MIN_CLICK_TICKS) {
+                    Action c = current;
+                    if (c.kind == Kind.PLACE && c.want != null && !c.scaffold) {
+                        // The facing was worked out from the planned spot; the player may have stopped a little
+                        // off it, and near a 45-degree boundary that turns a stair (tc_details: north became
+                        // west). Check from where it really is, and look exactly at the click point.
+                        if (!simulate(player, level, c.target, c.against, c.face, c.hit, player.position(), c.want)) {
+                            if (++c.facingTries > 3) {
+                                park(c, "wrong facing from here");
+                                enter(Phase.PLAN);
+                            } else {
+                                route = new ArrayList<>(List.of(c.stand));
+                                enter(Phase.MOVE);
+                            }
+                            return;
+                        }
+                        float[] rot = lookAngles(player.getEyePosition(), c.hit);
+                        player.setYRot(rot[0]);
+                        player.setXRot(rot[1]);
+                    }
                     act(mc, player, level, current);
                     lastActTick = ticks;
                     enter(Phase.VERIFY);
@@ -987,6 +1007,10 @@ final class NaturalBuilder {
             markDone(i);
             highestBuiltY = Math.max(highestBuiltY, a.target.getY());
             progress();
+            return;
+        }
+        if (a.kind == Kind.USE && have.getBlock() == a.want.getBlock() && have.getBlock() instanceof CropBlock) {
+            progress();         // bone meal grew it part of the way: another click follows (not a wrong block)
             return;
         }
         int n = attempts.merge(i, 1, Integer::sum);
