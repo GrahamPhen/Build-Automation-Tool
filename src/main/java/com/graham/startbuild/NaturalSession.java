@@ -397,7 +397,9 @@ final class NaturalSession {
     private static BlockPos nextExplorePoint(BlockPos from) {
         explorations++;
         double angle = Math.toRadians(explorations * 137.508);
-        int dist = 600 + 150 * (explorations % 3);
+        // Each failed hands-free attempt reaches further: the nearest patch of a biome from a point 600 blocks
+        // away was, 8 times in a row, the one grove already used (the test course's tc_garden).
+        int dist = 600 + 150 * (explorations % 3) + 700 * autoAttempts;
         return new BlockPos(from.getX() + (int) (Math.cos(angle) * dist), 64, from.getZ() + (int) (Math.sin(angle) * dist));
     }
 
@@ -471,6 +473,12 @@ final class NaturalSession {
             }
             StartBuildMod.LOGGER.info("[StartBuild] findsite biome {} at {}",
                     hit.getSecond().unwrapKey().map(k -> k.identifier().toString()).orElse("?"), hit.getFirst());
+            if (nearPastSite(hit.getFirst())) {
+                // The patch an earlier build already uses: every site in it would be rejected - look further.
+                StartBuildMod.LOGGER.info("[StartBuild] findsite: that patch is next to an earlier build - looking further");
+                autoRetry(mc);
+                return;
+            }
             flyTo(mc, hit.getFirst());
             return;
         }
