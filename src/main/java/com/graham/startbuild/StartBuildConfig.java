@@ -68,9 +68,9 @@ final class StartBuildConfig {
     public int terraformRadius = 12;
 
     /**
-     * Run the world this many times faster during a take (/tick rate, max 4). The replay still plays at
-     * normal speed (Flashback records game ticks); the take just finishes sooner. 1 = off. Needs a PC
-     * that keeps up - watch for "Can't keep up" in the log.
+     * Run the world this many times faster during a take (/tick rate, max 4). DOES NOT HELP (measured
+     * 2026-09-25): the client - where the character acts - never ticks faster than 20/s, so only the
+     * server world speeds up and the take takes as long. Keep 1.
      */
     public double gameSpeed = 1.0;
 

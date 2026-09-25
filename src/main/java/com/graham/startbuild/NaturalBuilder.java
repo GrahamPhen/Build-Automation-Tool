@@ -79,11 +79,11 @@ final class NaturalBuilder {
     private static final float MAX_PITCH_STEP = 30f;
     private static final int VERIFY_TICKS = 1;
     /** At most one click every 4 ticks - 5 a second, vanilla's own right-click repeat rate. */
-    private static final int MIN_CLICK_TICKS = 4;
+    private static final int MIN_CLICK_TICKS = 3;
     /**
-     * Ticks between clicks. Terraforming (felling, digging, filling) runs at 3 - about 6.7 clicks a second,
-     * still a player's pace and invisible in a timelapse - since it is now half of a take or more; the build
-     * itself keeps 4.
+     * Ticks between clicks: 3 for the build (~6.7 clicks/s, a quick creative builder), 2 for terraforming
+     * (10/s - it is half of a take or more). /tick rate cannot speed a take up: the client never ticks
+     * faster than 20/s (measured: a 2x "gameSpeed" take ran at 1x), so the character's own pace is the lever.
      */
     int clickTicks = MIN_CLICK_TICKS;
     private long lastActTick = -100;

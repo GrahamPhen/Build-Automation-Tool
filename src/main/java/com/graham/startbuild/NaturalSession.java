@@ -211,7 +211,8 @@ final class NaturalSession {
     private static void applyWorldSettings() {
         // First, so none of the following commands prints anything on camera.
         StartBuildMod.runServerCommand("gamerule send_command_feedback false");
-        String[] off = {"command_block_output", "advance_time", "advance_weather", "spawn_monsters",
+        // log_admin_commands: a command's "[player: ...]" line went to chat during a take (/tick rate).
+        String[] off = {"log_admin_commands", "command_block_output", "advance_time", "advance_weather", "spawn_monsters",
                 "spawn_phantoms", "spawn_patrols", "spawn_wandering_traders", "mob_griefing", "spread_vines"};
         for (String rule : off) {
             StartBuildMod.runServerCommand("gamerule " + rule + " false");
@@ -801,7 +802,7 @@ final class NaturalSession {
         } else {
             Terraformer.Part p = parts.get(partIndex);
             builder = new NaturalBuilder(p.model(), p.origin(), config.ticksPerBlock, p.clearing());
-            builder.clickTicks = 3;     // terraforming: a little brisker than the build
+            builder.clickTicks = 2;     // terraforming: 10 clicks/s - it is half of a take; invisible in a timelapse
         }
         stalls = 0;
         stallMark = -1;
