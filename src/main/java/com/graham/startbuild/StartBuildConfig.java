@@ -91,6 +91,12 @@ final class StartBuildConfig {
     /** How many areas the hands-free site search tries before giving up. */
     public int autoSiteAttempts = 8;
 
+    /**
+     * A new site keeps at least this many blocks (horizontally) from every earlier build listed in
+     * config/startbuild-sites.txt, so no previous build shows in the background of a take.
+     */
+    public int minSiteSpacing = 450;
+
     private static final Gson GSON = new GsonBuilder().setPrettyPrinting().create();
 
     private static Path path() {

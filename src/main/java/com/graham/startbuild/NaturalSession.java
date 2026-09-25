@@ -177,6 +177,7 @@ final class NaturalSession {
         deleteStopFile();
 
         origin = corner;
+        rememberSite(corner.offset(model.sizeX / 2, 0, model.sizeZ / 2), name);
         // Step off the corner cell, facing into the build.
         StartBuildMod.runServerCommand("tp @s " + (corner.getX() - 3 + 0.5) + " " + (corner.getY() + 2)
                 + " " + (corner.getZ() - 3 + 0.5) + " -45 30");
@@ -365,7 +366,8 @@ final class NaturalSession {
             StartBuildMod.runServerCommand("gamemode creative");
         }
         if (!PlacementFinder.biomeWords(siteWishText).isEmpty()) return exploreBiome(mc);
-        if (repeat) return exploreElsewhere(mc);
+        // Standing near an earlier build (just after a take, say): anything found here would have it in view.
+        if (repeat || nearPastSite(mc.player.blockPosition())) return exploreElsewhere(mc);
         return searchAround(mc, mc.player.blockPosition());
     }
 
@@ -417,8 +419,8 @@ final class NaturalSession {
         List<String> words = PlacementFinder.biomeWords(siteWishText);
         // Start from the player, or - once this biome has been used - from a point far away, so the nearest
         // match is a different patch of it.
-        BlockPos from = shownSites.isEmpty() && autoAttempts == 0 ? mc.player.blockPosition()
-                : nextExplorePoint(mc.player.blockPosition());
+        BlockPos from = shownSites.isEmpty() && autoAttempts == 0 && !nearPastSite(mc.player.blockPosition())
+                ? mc.player.blockPosition() : nextExplorePoint(mc.player.blockPosition());
         ServerLevel level = server.getLevel(mc.level.dimension());
         if (level == null) {
             StartBuildMod.chat("§cBiome search: this dimension is not available.");
@@ -531,6 +533,9 @@ final class NaturalSession {
             if (shownSites.stream().anyMatch(s -> Math.abs(s.getX() - o.getX()) < apart && Math.abs(s.getZ() - o.getZ()) < apart)) {
                 continue;
             }
+            if (nearPastSite(o.offset(m.sizeX / 2, 0, m.sizeZ / 2))) {
+                continue;       // an earlier build would be in the background
+            }
             if (!biomes.isEmpty() && !PlacementFinder.biomeMatches(
                     mc.level.getBiome(o.offset(m.sizeX / 2, 0, m.sizeZ / 2)), biomes)) {
                 continue;
@@ -610,6 +615,7 @@ final class NaturalSession {
         Minecraft mc = Minecraft.getInstance();
         if (mc.player == null || mc.level == null) {
             ticksInWorld = 0;
+            idleSince = 0;
             resetSiteSearch();
             if (state != State.IDLE) {
                 // Left the world mid-take: Flashback ends its own recording with the world.
@@ -899,6 +905,7 @@ final class NaturalSession {
             }
         }
         state = State.IDLE;
+        idleSince = ticksInWorld;
         buildStartMillis = 0;
         restoreOptions(mc);
         String summary = String.format("Done: %s - %d placed by the character, %d not matching, %d min"
@@ -923,6 +930,7 @@ final class NaturalSession {
         }
         recordingByUs = false;
         state = State.IDLE;
+        idleSince = ticksInWorld;
         buildStartMillis = 0;
         restoreOptions(Minecraft.getInstance());
     }
@@ -1019,6 +1027,7 @@ final class NaturalSession {
         try {
             Path flag = FabricLoader.getInstance().getConfigDir().resolve("startbuild-autorun");
             if (!Files.exists(flag)) {
+                checkQueue(mc, StartBuildConfig.load());
                 return;
             }
             StartBuildConfig cfg = StartBuildConfig.load();
@@ -1031,6 +1040,78 @@ final class NaturalSession {
             startAuto(text);
         } catch (Throwable t) {
             StartBuildMod.LOGGER.warn("[StartBuild] autorun check failed: {}", Reflect.describe(t));
+        }
+    }
+
+    /** ticksInWorld when the last take ended (the queue gives Flashback time to write the replay). */
+    private static long idleSince;
+
+    /**
+     * Takes back to back, unattended: config/startbuild-queue.txt holds one "name [wish]" per line. While
+     * nothing else is going on, the first line is taken out and run as a hands-free take (new site far from
+     * every earlier build, terraform, build, save); when that take ends the next line follows.
+     */
+    private static void checkQueue(Minecraft mc, StartBuildConfig cfg) throws Exception {
+        Path queue = FabricLoader.getInstance().getConfigDir().resolve("startbuild-queue.txt");
+        if (!Files.exists(queue) || autoMode || biomeLookup != null || exploreTarget != null || autoConfirmTicks > 0
+                || previewName != null || ticksInWorld < (int) (cfg.autoRunDelaySeconds * 20)
+                || ticksInWorld - idleSince < 30 * 20) {
+            return;
+        }
+        List<String> lines = new ArrayList<>(Files.readAllLines(queue));
+        String next = null;
+        while (!lines.isEmpty() && next == null) {
+            String l = lines.remove(0).trim();
+            if (!l.isEmpty() && !l.startsWith("#")) next = l;
+        }
+        if (next == null) return;
+        Files.write(queue, lines);
+        idleSince = ticksInWorld;           // a search that fails at once does not pop the next line right away
+        StartBuildMod.LOGGER.info("[StartBuild] queue: next take '{}' ({} line(s) left)", next, lines.size());
+        startAuto(next);
+    }
+
+    // ------------------------------------------------------------------ earlier builds
+
+    private static Path sitesFile() {
+        return FabricLoader.getInstance().getConfigDir().resolve("startbuild-sites.txt");
+    }
+
+    /** Every earlier build's centre, from config/startbuild-sites.txt ("x y z [anything]" per line). */
+    private static List<int[]> pastSites() {
+        List<int[]> out = new ArrayList<>();
+        try {
+            if (!Files.exists(sitesFile())) return out;
+            for (String l : Files.readAllLines(sitesFile())) {
+                String[] p = l.trim().split("[\\s,]+");
+                if (p.length < 3 || l.trim().startsWith("#")) continue;
+                try {
+                    out.add(new int[]{Integer.parseInt(p[0]), Integer.parseInt(p[2])});
+                } catch (NumberFormatException ignored) {
+                }
+            }
+        } catch (Throwable t) {
+            StartBuildMod.LOGGER.warn("[StartBuild] could not read {}: {}", sitesFile(), Reflect.describe(t));
+        }
+        return out;
+    }
+
+    /** Would a build centred here have an earlier build in view? */
+    static boolean nearPastSite(BlockPos centre) {
+        long min = StartBuildConfig.load().minSiteSpacing;
+        for (int[] s : pastSites()) {
+            long dx = s[0] - centre.getX(), dz = s[1] - centre.getZ();
+            if (dx * dx + dz * dz < min * min) return true;
+        }
+        return false;
+    }
+
+    private static void rememberSite(BlockPos centre, String name) {
+        try {
+            Files.writeString(sitesFile(), centre.getX() + " " + centre.getY() + " " + centre.getZ() + " " + name
+                    + System.lineSeparator(), java.nio.file.StandardOpenOption.CREATE, java.nio.file.StandardOpenOption.APPEND);
+        } catch (Throwable t) {
+            StartBuildMod.LOGGER.warn("[StartBuild] could not record the site: {}", Reflect.describe(t));
         }
     }
 
