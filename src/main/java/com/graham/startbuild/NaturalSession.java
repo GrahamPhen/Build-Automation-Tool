@@ -178,9 +178,12 @@ final class NaturalSession {
         deleteStopFile();
 
         origin = corner;
-        // Step off the corner cell, facing into the build.
-        StartBuildMod.runServerCommand("tp @s " + (corner.getX() - 3 + 0.5) + " " + (corner.getY() + 2)
-                + " " + (corner.getZ() - 3 + 0.5) + " -45 30");
+        // Step off the corner cell, facing into the build - in open air: on a slope that spot can be inside
+        // the hill (greenhouse_80 started buried, and every tree was out of reach).
+        BlockPos stand = corner.offset(-3, 2, -3);
+        for (int k = 0; k < 96 && !(isFree(mc, stand) && isFree(mc, stand.above())); k++) stand = stand.above();
+        StartBuildMod.runServerCommand("tp @s " + (stand.getX() + 0.5) + " " + stand.getY()
+                + " " + (stand.getZ() + 0.5) + " -45 30");
 
         builder = null;
         rechecks = 0;

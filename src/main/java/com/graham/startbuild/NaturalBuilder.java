@@ -270,6 +270,7 @@ final class NaturalBuilder {
                     return;
                 }
                 if (!routeTo(mc, player, level)) {
+                    if (surfaceIfBuried(level, player)) return;     // then plan again from open air
                     park(current, "no way to get there");
                     cooldown = 2;
                     return;
@@ -469,8 +470,8 @@ final class NaturalBuilder {
             if (firstNotDone == null) firstNotDone = worldOf(i);
         }
         if (!notDone.isEmpty()) {
-            StartBuildMod.LOGGER.warn("[StartBuild] {} cell(s) not done: {} (first at {})",
-                    notDone.values().stream().mapToInt(Integer::intValue).sum(), notDone, firstNotDone);
+            StartBuildMod.LOGGER.warn("[StartBuild] {} cell(s) not done: {} (first at {}; last problem: {})",
+                    notDone.values().stream().mapToInt(Integer::intValue).sum(), notDone, firstNotDone, lastProblem);
         }
         finished = true;
         return null;
@@ -1218,6 +1219,24 @@ final class NaturalBuilder {
             return true;
         }
         route = smooth(level, from, cells, goal);
+        return true;
+    }
+
+    private long lastSurfaced = -10_000;
+
+    /**
+     * Inside the landscape (not our own blocks) with ground above: no route can lead anywhere, and every
+     * cell of the stage used to be skipped as "no way to get there" (greenhouse_80's trees, all 105). Move
+     * the player up to open air above its column - at most once every 10 s.
+     */
+    private boolean surfaceIfBuried(ClientLevel level, LocalPlayer player) {
+        BlockPos at = player.blockPosition();
+        int top = level.getHeight(net.minecraft.world.level.levelgen.Heightmap.Types.MOTION_BLOCKING, at.getX(), at.getZ());
+        if (top <= at.getY() + 1 || ticks - lastSurfaced < 200) return false;
+        if (clearLine(level, player.position(), player.position().add(0, top - at.getY() + 1, 0))) return false;
+        lastSurfaced = ticks;
+        StartBuildMod.LOGGER.warn("[StartBuild] buried at {} under ground up to y={} - moving up to open air", at, top);
+        StartBuildMod.runServerCommand("tp @s " + (at.getX() + 0.5) + " " + (top + 1) + " " + (at.getZ() + 0.5));
         return true;
     }
 
