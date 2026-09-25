@@ -101,6 +101,9 @@ final class NaturalBuilder {
     /** Set by fly() when the player is blocked mid-route: MOVE plans the route again. */
     private boolean replan;
     private int scaffoldCleanups;
+    /** How often each cell has had temporary support planned (kept through recover(), so a loop stays broken). */
+    private final Map<Integer, Integer> scaffoldPlans = new HashMap<>();
+    private static final int MAX_SCAFFOLD_PLANS = 4;
     /** Per cell: do not try to plan it again before this tick (it just failed to plan). */
     private final int[] retryAfter;
 
@@ -318,6 +321,15 @@ final class NaturalBuilder {
             Action a = queue.pollFirst();
             if (prepare(mc, player, level, a)) {
                 return a;
+            }
+            if (!a.scaffold && a.kind == Kind.PLACE) {
+                // The real block cannot be clicked even with its support up: set the cell aside and just
+                // clean up. Otherwise the same support is planned again at once - place, break, repeat for
+                // ever, each step counting as progress (a whole take looped like that at the roof).
+                int i = indexOf(a.target);
+                if (i >= 0 && status[i] == 1) status[i] = 3;
+                lastProblem = "could not place " + name(a.want) + " even with support (" + a.target + ")";
+                queue.removeIf(q -> !q.scaffold || q.kind == Kind.PLACE);
             }
         }
         // 2. Remove any temporary block that is no longer needed (one that could not be reached is left
@@ -542,6 +554,10 @@ final class NaturalBuilder {
                     || isWater(want)) {
                 continue;       // needs real ground/support (sand, plants, water) - a temporary block cannot help
             }
+            if (scaffoldPlans.getOrDefault(i, 0) >= MAX_SCAFFOLD_PLANS) {
+                status[i] = 3;  // supported often enough without success: never loop on one cell
+                continue;
+            }
             for (Direction d : preferredDirections(want)) {
                 BlockPos n = t.relative(d);
                 if (!freeForScaffold(level, n)) continue;
@@ -564,6 +580,7 @@ final class NaturalBuilder {
                     b.forCell = i;
                     queue.addLast(b);
                 }
+                scaffoldPlans.merge(i, 1, Integer::sum);
                 StartBuildMod.LOGGER.info("[StartBuild] temporary support for {} at {}: {} block(s)",
                         name(want), t, chain.size());
                 while (!queue.isEmpty()) {

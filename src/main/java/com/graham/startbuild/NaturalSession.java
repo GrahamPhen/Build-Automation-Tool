@@ -814,6 +814,11 @@ final class NaturalSession {
     private static final int STALL_TICKS = 20 * 60 * 3;
     private static int stalls;
     private static long stallMark = -1;
+    /** Busy but finishing no cell for this long (a place/break loop) -> treated as a stall too. */
+    private static final int LOOP_TICKS = 20 * 60 * 6;
+    private static NaturalBuilder watched;
+    private static long remainingMark;
+    private static long remainingSince;
 
     /**
      * Unattended runs must never hang. If the current stage makes no progress for 3 minutes:
@@ -821,17 +826,33 @@ final class NaturalSession {
      *   2nd time - also move the player to open air above the work (it may be shut in) and retry;
      *   3rd time - give up on what is left of this stage and carry on (the build stage then finishes and
      *              the take is saved), logging exactly what was left.
-     * Progress in between resets the count. Paused ticks are not counted (tick() returns early).
+     * Also when busy for 6 minutes without finishing a single cell (a place/break loop). A finished cell
+     * in between resets the count. Paused ticks are not counted (tick() returns early).
      */
     private static void watchdog(Minecraft mc) {
-        if (builder.lastProgressTick > stallMark) {
+        if (builder != watched) {
+            watched = builder;
+            stalls = 0;
+            stallMark = -1;
+            remainingMark = builder.remaining();
+            remainingSince = builder.ticks;
+        }
+        // Only a finished cell resets the count: placing and breaking temporary blocks also counts as
+        // progress, and a take once looped on one support at the roof for 10+ minutes without this.
+        if (builder.remaining() != remainingMark) {
+            remainingMark = builder.remaining();
+            remainingSince = builder.ticks;
             stalls = 0;
         }
-        if (builder.isFinished() || builder.ticks - builder.lastProgressTick < STALL_TICKS) return;
+        boolean idle = builder.ticks - builder.lastProgressTick >= STALL_TICKS;
+        boolean looping = builder.ticks - remainingSince >= LOOP_TICKS;
+        if (builder.isFinished() || !(idle || looping)) return;
+        remainingSince = builder.ticks;     // each step gets its own time before the next
         stalls++;
         String where = stageLabel() + ", " + builder.remaining() + " left, last problem: " + builder.lastProblem();
         if (stalls == 1) {
-            StartBuildMod.LOGGER.warn("[StartBuild] watchdog: no progress for 3 min ({}) - replanning", where);
+            StartBuildMod.LOGGER.warn("[StartBuild] watchdog: {} ({}) - replanning",
+                    idle ? "no progress for 3 min" : "busy but no cell finished for 6 min", where);
             builder.recover();
         } else if (stalls == 2) {
             BlockPos p = builder.escapePoint();
