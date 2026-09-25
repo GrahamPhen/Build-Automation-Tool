@@ -25,6 +25,15 @@ final class MusicMixer {
      *   java -cp "Flashback.jar;<mod classes>" com.graham.startbuild.MusicMixer video music out [startSec] [encoder]
      */
     public static void main(String[] args) throws Exception {
+        if (args[0].equals("start")) {                                   // loudness per 0.5 s over the first 8 s
+            for (int i = 1; i < args.length; i++) {
+                double[] r = loudness(Path.of(args[i]));
+                StringBuilder sb = new StringBuilder(Path.of(args[i]).getFileName() + ":");
+                for (int k = 0; k < Math.min(16, r.length); k++) sb.append(" ").append((int) r[k]);
+                System.out.println(sb);
+            }
+            return;
+        }
         if (args[0].equals("probe")) {                                   // how loud is the audio, per 5 s?
             for (int i = 1; i < args.length; i++) System.out.println(probe(Path.of(args[i])));
             return;
@@ -81,8 +90,8 @@ final class MusicMixer {
     }
 
     /**
-     * Where a song gets going: the first half-second that reaches half the song's typical (median) loudness,
-     * backed up 1 s so it does not start mid-hit. 0 if it is loud from the start.
+     * Where a song gets going: the first half-second that reaches half the song's typical (median) loudness.
+     * 0 if it is loud from the start. (A 0.15 s fade-in keeps a mid-note start from clicking.)
      */
     static double autoStart(double[] rms) {
         if (rms.length == 0) return 0;
@@ -90,7 +99,7 @@ final class MusicMixer {
         java.util.Arrays.sort(sorted);
         double typical = sorted[sorted.length / 2];
         for (int i = 0; i < rms.length; i++) {
-            if (rms[i] >= typical * 0.5) return Math.max(0, i * 0.5 - 1.0);
+            if (rms[i] >= typical * 0.5) return i * 0.5;      // right on it: a Short cannot wait for a build-up
         }
         return 0;
     }
@@ -169,7 +178,8 @@ final class MusicMixer {
                         audioDone = true;
                         break;
                     }
-                    double g = gain * (at > fadeFrom ? Math.max(0, (videoLen - at) / 2_000_000.0) : 1);
+                    double g = gain * (at > fadeFrom ? Math.max(0, (videoLen - at) / 2_000_000.0) : 1)
+                            * Math.min(1, Math.max(0, at) / 150_000.0);                      // 0.15 s fade-in
                     if (g != 1) fade(a, frameCls, g);
                     record.invoke(rec, a);
                 }
