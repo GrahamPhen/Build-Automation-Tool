@@ -78,7 +78,7 @@ final class NaturalBuilder {
     private static final float MAX_YAW_STEP = 40f;
     private static final float MAX_PITCH_STEP = 30f;
     private static final int VERIFY_TICKS = 1;
-    /** At most one click every 4 ticks - 5 a second, vanilla's own right-click repeat rate. */
+    /** Default ticks between clicks (see clickTicks). */
     private static final int MIN_CLICK_TICKS = 3;
     /**
      * Ticks between clicks: 3 for the build (~6.7 clicks/s, a quick creative builder), 2 for terraforming
@@ -1351,7 +1351,9 @@ final class NaturalBuilder {
         player.setYRot(cy + sy);
         player.setXRot(Mth.clamp(cp + sp, -90f, 90f));
         player.setYHeadRot(player.getYRot());
-        return Math.abs(dy) < 3f && Math.abs(dp) < 3f;
+        // On target once THIS step lands there (it used to need the next tick to notice: one idle tick on
+        // most blocks, the main limit on digging/filling pace once clicks were 2 ticks apart).
+        return Math.abs(dy - sy) < 3f && Math.abs(dp - sp) < 3f;
     }
 
     private static float[] lookAngles(Vec3 eye, Vec3 target) {
