@@ -110,6 +110,13 @@ final class NaturalBuilder {
     /** Set by fly() when the player is blocked mid-route: MOVE plans the route again. */
     private boolean replan;
     private int scaffoldCleanups;
+    /**
+     * Placed cells to look at again a second later. The check right after a click sees the client's own
+     * prediction; the server can still refuse the block and it turns back into air - the cell stayed "done",
+     * was never retried and never logged (a stair in the test course, likely halloween_80's 43 missing blocks).
+     */
+    private final Deque<long[]> serverChecks = new ArrayDeque<>();
+    private int serverUndone;
     private long cleanupWaitUntil;
     /** How often each cell has had temporary support planned (kept through recover(), so a loop stays broken). */
     private final Map<Integer, Integer> scaffoldPlans = new HashMap<>();
@@ -223,6 +230,19 @@ final class NaturalBuilder {
             return;
         }
         keepFlying(player);
+        // A second look at blocks placed a second ago, now that the server has answered.
+        while (!serverChecks.isEmpty() && serverChecks.peekFirst()[1] <= ticks) {
+            int i = (int) serverChecks.pollFirst()[0];
+            if (status[i] == 2 && !matches(level.getBlockState(worldOf(i)), model.states[i])) {
+                status[i] = 3;              // parked: retried in the passes at the end
+                remaining++;
+                placed--;
+                if (serverUndone++ < 5 || serverUndone % 50 == 0) {
+                    StartBuildMod.LOGGER.info("[StartBuild] the server undid {} at {} ({} so far) - it is retried later",
+                            name(model.states[i]), worldOf(i), serverUndone);
+                }
+            }
+        }
 
         if (cooldown > 0) {
             cooldown--;
@@ -417,6 +437,8 @@ final class NaturalBuilder {
             layer = 0;
             return nextAction(mc, player, level);
         }
+        // The last blocks' second looks are still due: wait for them (a second) before calling it done.
+        if (!serverChecks.isEmpty()) return null;
         // No temporary block may be left in the finished take: retry any that were set aside.
         scaffolds.removeIf(s -> level.getBlockState(s).isAir());
         // A temporary block walled in on every side by the finished build can never be seen - on camera or
@@ -1011,6 +1033,7 @@ final class NaturalBuilder {
         if (matches(have, a.want)) {
             placed++;
             markDone(i);
+            if (i >= 0) serverChecks.addLast(new long[]{i, ticks + 20});
             highestBuiltY = Math.max(highestBuiltY, a.target.getY());
             progress();
             return;
