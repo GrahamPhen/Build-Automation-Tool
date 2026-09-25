@@ -9,6 +9,7 @@ import net.minecraft.tags.BlockTags;
 import net.minecraft.util.Mth;
 import net.minecraft.world.InteractionHand;
 import net.minecraft.world.InteractionResult;
+import net.minecraft.world.entity.MoverType;
 import net.minecraft.world.entity.player.Inventory;
 import net.minecraft.world.item.BlockItem;
 import net.minecraft.world.item.Item;
@@ -1038,7 +1039,14 @@ final class NaturalBuilder {
         // Crossing the site at sprint-fly speed, easing down to the working pace for the last few blocks.
         double speed = Math.min(dist > 8 ? FLY_SPEED_FAR : FLY_SPEED, Math.max(0.12, dist * 0.45));
         Vec3 v = delta.normalize().scale(speed);
-        player.setDeltaMovement(v);
+        if (player.isInLiquid()) {
+            // Water drags and lifts a flying player: a velocity barely moves it, so every fill cell in a
+            // lake beside the site ended "stuck" (greenhouse_80). Move it directly, with collision, like swimming.
+            player.setDeltaMovement(Vec3.ZERO);
+            player.move(MoverType.SELF, v);
+        } else {
+            player.setDeltaMovement(v);
+        }
         // Look where we are going when travelling, like a player would.
         if (dist > 3) {
             float[] rot = lookAngles(player.getEyePosition(), wp.add(0, player.getEyeHeight(), 0));
