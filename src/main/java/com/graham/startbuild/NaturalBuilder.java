@@ -463,6 +463,23 @@ final class NaturalBuilder {
 
     private int skippedForRetry;
 
+    /**
+     * Water goes in last: only once every side and the cell below that should be solid is done. Poured
+     * early, it flowed over a garden's empty farmland cells and the character could not hold position
+     * in the current (storybook_cottage stalled with 201 cells left).
+     */
+    private boolean waterContained(int x, int y, int z) {
+        int[][] around = {{1, 0, 0}, {-1, 0, 0}, {0, 0, 1}, {0, 0, -1}, {0, -1, 0}};
+        for (int[] d : around) {
+            int nx = x + d[0], ny = y + d[1], nz = z + d[2];
+            if (!model.inside(nx, ny, nz)) continue;
+            int n = model.index(nx, ny, nz);
+            BlockState w = model.states[n];
+            if (!w.isAir() && !isWater(w) && status[n] != 2 && status[n] != 4) return false;
+        }
+        return true;
+    }
+
     private Action scanLayers(Minecraft mc, LocalPlayer player, ClientLevel level, int fromY, int toY) {
         Vec3 eye = player.getEyePosition();
         // Cheap pass: candidates sorted by distance; the expensive click-solving runs lazily in that order.
@@ -492,6 +509,7 @@ final class NaturalBuilder {
                         markDone(i);
                         continue;
                     }
+                    if (isWater(want) && !waterContained(x, y, z)) continue;
                     boolean special = specialUse(have, want) != null;
                     boolean needsBreak = !special && !have.isAir() && !have.canBeReplaced();
                     if (!special && !needsBreak && !hasSolidNeighbour(level, p)) continue;
