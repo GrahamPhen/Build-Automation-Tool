@@ -46,11 +46,17 @@ final class Terraformer {
     }
 
     record Plan(List<Part> parts, int cut, int filled, int treeBlocks, int trees, int radius,
-                BlockState surface, BlockState subsurface, int floodRisk, int planted) {
+                BlockState surface, BlockState subsurface, int floodRisk, int planted, int wetFill) {
         String describe() {
             return String.format("%,d block(s) to clear (%d tree(s), %,d tree blocks), %,d to place (%d plant(s)), blend radius %d; "
-                            + "ground %s over %s%s", cut, trees, treeBlocks, filled, planted, radius, name(surface), name(subsurface),
-                    floodRisk > 0 ? "; WARNING: water above the base next to " + floodRisk + " footprint column(s)" : "");
+                            + "ground %s over %s%s%s", cut, trees, treeBlocks, filled, planted, radius, name(surface), name(subsurface),
+                    floodRisk > 0 ? "; WARNING: water above the base next to " + floodRisk + " footprint column(s)" : "",
+                    wetFill > 0 ? "; " + wetFill + " fill block(s) in water" : "");
+        }
+
+        /** Hand work of the terraforming, as a multiple of the build itself. */
+        double effortRatio(int buildBlocks) {
+            return (cut + filled) / (double) Math.max(1, buildBlocks);
         }
     }
 
@@ -238,8 +244,14 @@ final class Terraformer {
         if (cm != null) parts.add(new Part("terraforming: digging", cm, co[0], true));
         SchematicModel fm = toModel(fill, fo);
         if (fm != null) parts.add(new Part("terraforming: filling", fm, fo[0], false));
+        // Fill that would go into standing water: filling a lake by hand is slow, unnatural to watch, and the
+        // character works in the water (greenhouse_80's lake-side site).
+        int wetFill = 0;
+        for (BlockPos p : fill.keySet()) {
+            if (!level.getBlockState(p).getFluidState().isEmpty()) wetFill++;
+        }
         return new Plan(parts, clear.size() + treeBlocks, fill.size(), treeBlocks, trees.size(), blend[0],
-                surface, subsurface, floodRisk, planted);
+                surface, subsurface, floodRisk, planted, wetFill);
     }
 
     /**

@@ -173,7 +173,16 @@ Unattended nights:
 - Prefer `plains` wishes for 96-128 wide builds: forest/cherry/flower sites can need more terraforming than
   the build itself (the plan line `terraform plan:` says how much; stop early if it dwarfs the build).
 
-Open: leftover supports still happen when nooks close around them; storybook_cottage needs a redo;
+Checking a version / a take (2.16.0):
+- Hands-free takes skip a site before recording when its terraforming is > `maxTerraformRatio` (1.5) x the
+  build (at least `terraformAllowance` 4000), it would fill > `maxWetFill` (100) blocks into water, or has
+  water above the base beside it (`hands-free: skipping site` in the log); the next choice/area is tried.
+- `node tools/cottage/take-report.mjs [log] [n]` - one report per take: plan, stage times, watchdog/shut-ins,
+  leftover supports and whether each can be seen, schematic-vs-world, ground steps.
+- `node tools/cottage/test-course.mjs` writes tc_garden / tc_overhang / tc_shutin / tc_details (farmland +
+  water, deep overhang, closed box, orientations) and prints their queue lines: run them before long takes.
+
+Open: leftover supports still happen when nooks close around them (halloween_80: 6, none visible); storybook_cottage needs a redo;
 schematics with water/farmland are untested since 2.15.3. More schematics wait in `Desktop\litematic`
 (catalog in `_catalog`).
 

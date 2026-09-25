@@ -97,6 +97,17 @@ final class StartBuildConfig {
      */
     public int minSiteSpacing = 450;
 
+    /**
+     * Hands-free takes skip a site (before recording) whose terraforming - blocks cleared + placed - would be
+     * more than this many times the build, or than terraformAllowance if that is larger. Measured: good
+     * takes were 0.5-1.5x; a forest hill was 3x (9 h of digging), a 912-block cottage on a slope 10x.
+     */
+    public double maxTerraformRatio = 1.5;
+    public int terraformAllowance = 4000;
+
+    /** ...or that would have to fill more than this many blocks into standing water (a lake beside it). */
+    public int maxWetFill = 100;
+
     private static final Gson GSON = new GsonBuilder().setPrettyPrinting().create();
 
     private static Path path() {

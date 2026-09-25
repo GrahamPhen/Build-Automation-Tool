@@ -84,6 +84,7 @@ final class NaturalSession {
         }
         SchematicModel m = readModel(mc, name);
         BlockPos corner = mc.player.blockPosition();
+        handsFreeTake = false;
         return start(name, m == null ? corner : onGround(mc.level, corner, m));
     }
 
@@ -177,7 +178,6 @@ final class NaturalSession {
         deleteStopFile();
 
         origin = corner;
-        rememberSite(corner.offset(model.sizeX / 2, 0, model.sizeZ / 2), name);
         // Step off the corner cell, facing into the build.
         StartBuildMod.runServerCommand("tp @s " + (corner.getX() - 3 + 0.5) + " " + (corner.getY() + 2)
                 + " " + (corner.getZ() - 3 + 0.5) + " -45 30");
@@ -449,7 +449,7 @@ final class NaturalSession {
         if (autoConfirmTicks > 0 && --autoConfirmTicks == 0) {
             StartBuildMod.LOGGER.info("[StartBuild] hands-free: confirming site {}", previewOrigin);
             autoMode = false;
-            if (confirmPreview() == 0) {
+            if (confirmPreview(true) == 0) {
                 StartBuildMod.chat("§cHands-free take could not start (see the log).");
             }
             return;
@@ -596,6 +596,29 @@ final class NaturalSession {
 
     /** Builds the last preview exactly where it was shown, wherever the player is now. */
     static int confirmPreview() {
+        return confirmPreview(false);
+    }
+
+    /** True while the running take was confirmed by the hands-free search (it may then skip a costly site). */
+    private static boolean handsFreeTake;
+
+    /**
+     * Why this site is not worth a take, or null: terraforming out of proportion to the build (a forest
+     * hill, a small build on a slope - the Short would be mostly digging) or filling into a lake.
+     */
+    private static String siteTooCostly(Terraformer.Plan plan) {
+        double limit = Math.max(config.maxTerraformRatio * model.solidCount, config.terraformAllowance);
+        if (plan.cut() + plan.filled() > limit) {
+            return String.format("terraforming %,d blocks is %.1fx the build (limit %.1fx)",
+                    plan.cut() + plan.filled(), plan.effortRatio(model.solidCount), config.maxTerraformRatio);
+        }
+        if (plan.wetFill() > config.maxWetFill) return plan.wetFill() + " fill blocks would go into water";
+        if (plan.floodRisk() > 0) return "water above the base right beside the footprint";
+        return null;
+    }
+
+    private static int confirmPreview(boolean handsFree) {
+        handsFreeTake = handsFree;
         if (previewName == null || previewOrigin == null) {
             StartBuildMod.chat("§eNo preview yet. /findsite or /previewbuild first.");
             return 0;
@@ -712,7 +735,24 @@ final class NaturalSession {
             parts = plan.parts();
             StartBuildMod.LOGGER.info("[StartBuild] terraform plan: {} ({} ms)", plan.describe(),
                     System.currentTimeMillis() - t0);
+            String bad = siteTooCostly(plan);
+            if (bad != null && handsFreeTake) {
+                // Nothing is recorded yet: drop this site and let the search offer the next one.
+                StartBuildMod.LOGGER.warn("[StartBuild] hands-free: skipping site {} - {}", origin.toShortString(), bad);
+                state = State.IDLE;
+                restoreOptions(mc);
+                autoMode = true;
+                if (siteIndex + 1 < siteChoices.size()) {
+                    siteIndex++;
+                    showSite();
+                } else {
+                    autoRetry(mc);
+                }
+                return;
+            }
+            if (bad != null) StartBuildMod.chat("§eThis site is costly: " + bad + ". /stopbuild to pick another.");
         }
+        rememberSite(origin.offset(model.sizeX / 2, 0, model.sizeZ / 2), schematicName);
         recordingByUs = false;
         if (config.startRecording && FlashbackBridge.available()) {
             if (FlashbackBridge.isRecording()) {
