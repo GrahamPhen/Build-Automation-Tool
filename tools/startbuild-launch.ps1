@@ -538,6 +538,40 @@ if ($autoBuild) {
     Write-Ok "auto-build armed: $autorunText (starts by itself once the world is loaded)"
 }
 
+# Prism's "Low free memory - launch anyway?" dialog waits for a click, which stalls an unattended relaunch.
+# Prism counts only truly free RAM (it said 70 MB while Windows had 6 GB available). The setting is switched
+# off here - but a Prism that is already open keeps the old value in memory, so the launch below also
+# answers the dialog if it still appears (Answer-PrismLowMemory, usable from other scripts too).
+$instanceCfg = Join-Path $InstanceDir 'instance.cfg'
+if ((Test-Path $instanceCfg) -and (Select-String -Path $instanceCfg -Pattern '^LowMemWarning=true' -Quiet)) {
+    (Get-Content $instanceCfg) -replace '^LowMemWarning=true', 'LowMemWarning=false' | Set-Content $instanceCfg -Encoding ASCII
+    Write-Ok 'Prism low-memory prompt switched off for this instance (it blocks unattended launches)'
+}
+
+function Answer-PrismLowMemory {
+    param([int] $Seconds = 60)
+    Add-Type -AssemblyName UIAutomationClient, UIAutomationTypes
+    $deadline = (Get-Date).AddSeconds($Seconds)
+    while ((Get-Date) -lt $deadline) {
+        $dlg = Get-Process prismlauncher -ErrorAction SilentlyContinue | Where-Object { $_.MainWindowTitle -match 'Low free memory' } | Select-Object -First 1
+        if ($dlg) {
+            $root = [System.Windows.Automation.AutomationElement]::RootElement
+            $cond = New-Object System.Windows.Automation.PropertyCondition([System.Windows.Automation.AutomationElement]::ProcessIdProperty, $dlg.Id)
+            $win = $root.FindFirst([System.Windows.Automation.TreeScope]::Children, $cond)
+            $yes = $win.FindAll([System.Windows.Automation.TreeScope]::Descendants, [System.Windows.Automation.Condition]::TrueCondition) |
+                Where-Object { $_.Current.ControlType.ProgrammaticName -eq 'ControlType.Button' -and $_.Current.Name -eq 'Yes' } | Select-Object -First 1
+            if ($yes) {
+                $yes.GetCurrentPattern([System.Windows.Automation.InvokePattern]::Pattern).Invoke()
+                Write-Ok 'answered Prism''s low-memory prompt (launch anyway)'
+                return
+            }
+        }
+        if (Get-CimInstance Win32_Process -Filter "Name='javaw.exe'" -ErrorAction SilentlyContinue |
+                Where-Object { $_.CommandLine -like "*instances*$Instance*" }) { return }   # the game is starting
+        Start-Sleep -Seconds 2
+    }
+}
+
 # ---------------------------------------------------------------- 4. launch
 if ($gameRunning -and -not $NoLaunch) {
     Write-Step 'Minecraft is already running'
@@ -554,14 +588,6 @@ if ($NoLaunch) {
     exit 0
 }
 
-# Prism's "Low free memory - launch anyway?" dialog waits for a click, which stalls an unattended relaunch.
-# Prism counts only truly free RAM (it said 70 MB while Windows had 6 GB available), so it is switched off.
-$instanceCfg = Join-Path $InstanceDir 'instance.cfg'
-if ((Test-Path $instanceCfg) -and (Select-String -Path $instanceCfg -Pattern '^LowMemWarning=true' -Quiet)) {
-    (Get-Content $instanceCfg) -replace '^LowMemWarning=true', 'LowMemWarning=false' | Set-Content $instanceCfg -Encoding ASCII
-    Write-Ok 'Prism low-memory prompt switched off for this instance (it blocks unattended launches)'
-}
-
 Write-Step "Launching '$Instance'"
 Write-Host '   In game: /findsite <name> [wish]  then  /startbuild confirm   (finds a site, terraforms, builds)' -ForegroundColor White
 Write-Host '   Or: /startbuild place <name>  (build where you stand)    /stopbuild  (stop and save the take)'
@@ -573,4 +599,5 @@ if ($autoBuild -and $World) {
 }
 Start-Process -FilePath $PrismExe -ArgumentList $launchArgs | Out-Null
 Write-Ok 'Prism Launcher told to start - the game window should appear shortly'
+Answer-PrismLowMemory -Seconds 60
 exit 0
