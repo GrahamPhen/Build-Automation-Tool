@@ -110,7 +110,7 @@ was deleted in 2.7.0; it is in git history. Baritone is not needed any more.
 Config fields: `ticksPerBlock` (0 = fastest, set to 0 on the owner's PC), `prepTerrain`, `terraformRadius`
 (12, grows to 24 on steep sites), `gameSpeed` (1 = off), `stopDelaySeconds` (30), `videoDaylight`, `startRecording`/`finishRecording`,
 `forceQuicksave` (true — must be on unattended), `minFreeDiskGB` (5), `maxBuildMinutes` (600),
-`autoRunSchematic`/`autoRunWish`/`autoSiteAttempts` (8), `stopFileName`, `desktopNotification`.
+`autoRunSchematic`/`autoRunWish`/`autoSiteAttempts` (8), `minSiteSpacing` (450), `stopFileName`, `desktopNotification`.
 
 `tools/picture2schem/`
 - `picture2schem.mjs` — picture → JSON build plan (Claude API, model `claude-opus-5-5`, key in
@@ -155,6 +155,27 @@ Not yet run in game (compiled + unit-tested only): 2.9.1-2.9.3 fixes; earlier it
 (tree by tree), A* routing / dig-out, watchdog, hands-free auto, discard of empty takes, stop file,
 line-of-sight placement. Watch the log for `terraform plan:`, `felling tree`, `digging`/`filling done`,
 `shut in:`, `watchdog:`, `hands-free:`. Also unverified: portal lighting, water bucket placement.
+
+**Overnight run (2026-09-24/25, 2.14.4 → 2.15.3), unattended:** haunted_80 complete (12,100, 134 min,
+24 visible supports left → fixed 2.15.1); storybook_cottage 78% (garden: petals blocked hoeing → 2.15.2,
+water poured early flooded the garden → 2.15.3); pumpkin_castle_80 complete (29,833, 283 min, 7 supports
+left, all tucked in 1-open-side nooks); halloween_80 re-queued from a 218-tree forest hill (~9 h of
+terraforming) to plains. Proven live: queue chaining, two scripted restarts, site spacing, empty-take
+discard, the busy-loop watchdog.
+
+Unattended nights:
+- `config/startbuild-queue.txt` — one `name [wish]` per line; popped 30 s after a take ends (while idle).
+- `config/startbuild-sites.txt` — every build's centre (appended at start; seed with
+  `tools/cottage/find-builds.mjs <regionDir>`); new sites keep `minSiteSpacing` (450) blocks away.
+- To install a new jar between takes: hold the queue (rename to `.hold`), wait for `Done:`, close ONLY the
+  26.2 window (`CloseMainWindow`, never another Minecraft), run the launcher with `-NoLaunch -Build ...`
+  (it refuses to launch while any javaw runs), then `prismlauncher -l BuildRecording -w "Video Building"`.
+- Prefer `plains` wishes for 96-128 wide builds: forest/cherry/flower sites can need more terraforming than
+  the build itself (the plan line `terraform plan:` says how much; stop early if it dwarfs the build).
+
+Open: leftover supports still happen when nooks close around them; storybook_cottage needs a redo;
+schematics with water/farmland are untested since 2.15.3. More schematics wait in `Desktop\litematic`
+(catalog in `_catalog`).
 
 Ideas the owner raised: rotate builds to face water in `/findsite`; search beyond loaded chunks;
 more roof types (hip, round towers) in picture2schem.
