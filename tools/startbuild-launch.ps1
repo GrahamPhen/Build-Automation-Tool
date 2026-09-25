@@ -310,7 +310,7 @@ function New-PrismInstance {
     $cfg.Add('MaxMemAlloc=4096')
     $cfg.Add('JoinServerOnLaunch=false')
     $cfg.Add('LogPrePostOutput=true')
-    $cfg.Add('LowMemWarning=true')
+    $cfg.Add('LowMemWarning=false')
     $cfg.Add('OverrideCommands=false')
     $cfg.Add('OverrideConsole=false')
     $cfg.Add('OverrideJavaArgs=false')
@@ -524,7 +524,10 @@ if (-not $NoShaderpack) {
 # The mod watches for config\startbuild-autorun. Once a world has loaded it deletes the file, finds a
 # site (matching the optional wish words after the name), terraforms it by hand, starts Flashback and
 # builds the schematic - no typing at all. File content: "<name>" or "<name> <wish words>".
-$gameRunning = [bool](Get-Process javaw -ErrorAction SilentlyContinue)
+# Only THIS instance counts as running: another Minecraft (a different instance or version) must not stop
+# the launch - it used to, whenever the owner had a second game open.
+$gameRunning = [bool](Get-CimInstance Win32_Process -Filter "Name='javaw.exe'" -ErrorAction SilentlyContinue |
+    Where-Object { $_.CommandLine -and $_.CommandLine -like "*instances*$Instance*" })
 $autoBuild = (-not $NoAutoBuild) -and [bool]$Build
 if ($autoBuild) {
     $flag = Join-Path $GameDir 'config\startbuild-autorun'
@@ -549,6 +552,14 @@ if ($gameRunning -and -not $NoLaunch) {
 if ($NoLaunch) {
     Write-Step 'Setup only (-NoLaunch) - not starting Minecraft'
     exit 0
+}
+
+# Prism's "Low free memory - launch anyway?" dialog waits for a click, which stalls an unattended relaunch.
+# Prism counts only truly free RAM (it said 70 MB while Windows had 6 GB available), so it is switched off.
+$instanceCfg = Join-Path $InstanceDir 'instance.cfg'
+if ((Test-Path $instanceCfg) -and (Select-String -Path $instanceCfg -Pattern '^LowMemWarning=true' -Quiet)) {
+    (Get-Content $instanceCfg) -replace '^LowMemWarning=true', 'LowMemWarning=false' | Set-Content $instanceCfg -Encoding ASCII
+    Write-Ok 'Prism low-memory prompt switched off for this instance (it blocks unattended launches)'
 }
 
 Write-Step "Launching '$Instance'"
