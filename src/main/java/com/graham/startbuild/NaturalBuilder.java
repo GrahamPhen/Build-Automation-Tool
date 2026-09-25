@@ -80,6 +80,12 @@ final class NaturalBuilder {
     private static final int VERIFY_TICKS = 1;
     /** At most one click every 4 ticks - 5 a second, vanilla's own right-click repeat rate. */
     private static final int MIN_CLICK_TICKS = 4;
+    /**
+     * Ticks between clicks. Terraforming (felling, digging, filling) runs at 3 - about 6.7 clicks a second,
+     * still a player's pace and invisible in a timelapse - since it is now half of a take or more; the build
+     * itself keeps 4.
+     */
+    int clickTicks = MIN_CLICK_TICKS;
     private long lastActTick = -100;
     private static final int MAX_ATTEMPTS = 4;
     private static final int SCAFFOLD_SEARCH_DEPTH = 5;
@@ -294,7 +300,7 @@ final class NaturalBuilder {
                     return;
                 }
                 boolean aimed = aim(player, current.hit) || phaseTicks > 12;
-                if (aimed && ticks - lastActTick >= MIN_CLICK_TICKS) {
+                if (aimed && ticks - lastActTick >= clickTicks) {
                     Action c = current;
                     if (c.kind == Kind.PLACE && c.want != null && !c.scaffold) {
                         // The facing was worked out from the planned spot; the player may have stopped a little

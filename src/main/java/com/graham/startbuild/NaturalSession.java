@@ -558,6 +558,19 @@ final class NaturalSession {
             autoRetry(mc);
             return 0;
         }
+        if (autoMode && found.size() > 1 && StartBuildConfig.load().prepTerrain) {
+            // Hands-free: the least terraforming first - it is half of a take or more, and the Short is about
+            // the build. (Plans are read-only; a few hundred ms each, before anything is recorded.)
+            int tfRadius = StartBuildConfig.load().terraformRadius;
+            java.util.Map<BlockPos, Integer> cost = new java.util.HashMap<>();
+            for (PlacementFinder.Result f : found) {
+                Terraformer.Plan p = Terraformer.plan(mc.level, f.origin(), m, tfRadius);
+                cost.put(f.origin(), p.cut() + p.filled() + 20 * p.wetFill());
+            }
+            found.sort(java.util.Comparator.comparingInt(f -> cost.get(f.origin())));
+            StartBuildMod.LOGGER.info("[StartBuild] findsite: terraforming per site, cheapest first: {}",
+                    found.stream().map(f -> f.origin().toShortString() + "=" + cost.get(f.origin())).toList());
+        }
         siteChoices = found;
         siteIndex = 0;
         return showSite();
@@ -788,6 +801,7 @@ final class NaturalSession {
         } else {
             Terraformer.Part p = parts.get(partIndex);
             builder = new NaturalBuilder(p.model(), p.origin(), config.ticksPerBlock, p.clearing());
+            builder.clickTicks = 3;     // terraforming: a little brisker than the build
         }
         stalls = 0;
         stallMark = -1;
