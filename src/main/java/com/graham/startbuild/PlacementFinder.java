@@ -147,6 +147,16 @@ final class PlacementFinder {
 
     /** @return up to `wanted` sites, best first. */
     static List<Result> find(ClientLevel level, BlockPos centre, int radius, SchematicModel m, Wish wish, int wanted) {
+        return find(level, centre, radius, m, wish, wanted, List.of());
+    }
+
+    /**
+     * @param biomes biome words the site must be in (checked at the footprint's middle WHILE scoring - filtering
+     *               the finished shortlist instead threw every forest site away: open ground around a forest
+     *               always outscores ground among trees, so the shortlist held none in the forest)
+     */
+    static List<Result> find(ClientLevel level, BlockPos centre, int radius, SchematicModel m, Wish wish, int wanted,
+                             List<String> biomes) {
         // 1. One pass over the area: surface height and whether the surface is water, per column.
         int size = radius * 2 + Math.max(m.sizeX, m.sizeZ) + 16;
         int x0 = centre.getX() - radius - 8, z0 = centre.getZ() - radius - 8;
@@ -224,6 +234,7 @@ final class PlacementFinder {
                     near = Math.min(near, wd[i]);
                 }
                 if (bad || wet > 0) continue;
+                if (!biomes.isEmpty() && !biomeMatches(level.getBiome(new BlockPos(x0 + cx + m.sizeX / 2, 64, z0 + cz + m.sizeZ / 2)), biomes)) continue;
                 // Never on or next to anything man-made (an earlier build, a village): the character would
                 // tear it down as "terrain".
                 if (builtIn(builtSum, size, cx - 4, cz - 4, cx + m.sizeX + 3, cz + m.sizeZ + 3) > 0) continue;

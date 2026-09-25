@@ -526,7 +526,7 @@ final class NaturalSession {
         long t0 = System.currentTimeMillis();
         List<PlacementFinder.Result> found = new ArrayList<>();
         int apart = Math.max(m.sizeX, m.sizeZ) + 24;
-        for (PlacementFinder.Result r : PlacementFinder.find(mc.level, centre, radius, m, wish, 40)) {
+        for (PlacementFinder.Result r : PlacementFinder.find(mc.level, centre, radius, m, wish, 40, biomes)) {
             BlockPos o = r.origin();
             if (shownSites.stream().anyMatch(s -> Math.abs(s.getX() - o.getX()) < apart && Math.abs(s.getZ() - o.getZ()) < apart)) {
                 continue;
