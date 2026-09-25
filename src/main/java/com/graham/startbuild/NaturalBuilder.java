@@ -515,6 +515,15 @@ final class NaturalBuilder {
             Item use = specialUse(have, model.states[i]);
             if (model.states[i].isAir()) {
                 a = new Action(Kind.BREAK, p, model.states[i], false);
+            } else if ((use == Items.WOODEN_HOE || use == Items.WOODEN_SHOVEL) && !level.getBlockState(p.above()).isAir()) {
+                // Tilling / path-making only works with air above: petals or grass on the dirt made every hoe
+                // click fail (a garden of farmland stalled a take). Knock the plant off first; a real block
+                // there means the cell cannot be done now.
+                if (!level.getBlockState(p.above()).canBeReplaced() || !level.getBlockState(p.above()).getFluidState().isEmpty()) {
+                    retryAfter[i] = (int) ticks + 100;
+                    continue;
+                }
+                a = new Action(Kind.BREAK, p.above(), null, false);
             } else if (use != null) {
                 a = new Action(isWater(model.states[i]) ? Kind.USE_AIR : Kind.USE, p, model.states[i], false);
                 a.item = use;
