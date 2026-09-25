@@ -25,12 +25,14 @@ import net.minecraft.world.level.block.FlowerPotBlock;
 import net.minecraft.world.level.block.FallingBlock;
 import net.minecraft.world.level.block.HugeMushroomBlock;
 import net.minecraft.world.level.block.PipeBlock;
+import net.minecraft.world.level.block.SlabBlock;
 import net.minecraft.world.level.block.StairBlock;
 import net.minecraft.world.level.block.WallBlock;
 import net.minecraft.world.level.block.state.BlockState;
 import net.minecraft.world.level.block.state.properties.BlockStateProperties;
 import net.minecraft.world.level.block.state.properties.DoubleBlockHalf;
 import net.minecraft.world.level.block.state.properties.Property;
+import net.minecraft.world.level.block.state.properties.SlabType;
 import net.minecraft.world.phys.AABB;
 import net.minecraft.world.level.ClipContext;
 import net.minecraft.world.phys.BlockHitResult;
@@ -410,6 +412,18 @@ final class NaturalBuilder {
         if (!scaffolds.isEmpty()) {
             StartBuildMod.LOGGER.warn("[StartBuild] {} temporary block(s) could not be removed: {}", scaffolds.size(), scaffolds);
         }
+        // Cells that never went in were skipped quietly (every plan failed) - name them so it shows in the log.
+        Map<String, Integer> notDone = new java.util.TreeMap<>();
+        BlockPos firstNotDone = null;
+        for (int i = 0; i < status.length; i++) {
+            if (status[i] != 1 && status[i] != 3) continue;
+            notDone.merge(name(model.states[i]).replace("Block{minecraft:", "").replace("}", ""), 1, Integer::sum);
+            if (firstNotDone == null) firstNotDone = worldOf(i);
+        }
+        if (!notDone.isEmpty()) {
+            StartBuildMod.LOGGER.warn("[StartBuild] {} cell(s) not done: {} (first at {})",
+                    notDone.values().stream().mapToInt(Integer::intValue).sum(), notDone, firstNotDone);
+        }
         finished = true;
         return null;
     }
@@ -583,7 +597,10 @@ final class NaturalBuilder {
             if (++tried > 25) break;
             BlockPos t = worldOf(i);
             BlockState want = model.states[i];
-            if (want.getBlock() instanceof FallingBlock || !want.isCollisionShapeFullBlock(level, t)
+            // Slabs and stairs also take a temporary block: a top slab or upside-down stair with nothing
+            // beside it can only be clicked against the upper half of a neighbour (the test course's were skipped).
+            boolean shaped = want.getBlock() instanceof SlabBlock || want.getBlock() instanceof StairBlock;
+            if (want.getBlock() instanceof FallingBlock || (!want.isCollisionShapeFullBlock(level, t) && !shaped)
                     || isWater(want)) {
                 continue;       // needs real ground/support (sand, plants, water) - a temporary block cannot help
             }
@@ -671,7 +688,8 @@ final class NaturalBuilder {
 
     private Item scaffoldItemFor(BlockState want) {
         Item item = want.getBlock().asItem();
-        if (item == Items.AIR || want.getBlock() instanceof FallingBlock) {
+        if (item == Items.AIR || want.getBlock() instanceof FallingBlock
+                || want.getBlock() instanceof SlabBlock || want.getBlock() instanceof StairBlock) {
             return Blocks.COBBLESTONE.asItem();
         }
         return item;
@@ -738,7 +756,19 @@ final class NaturalBuilder {
             for (Vec3 hit : hitPoints(n, face)) {
                 Vec3 stand = standFor(level, player, hit, a.target, n);
                 if (stand == null) continue;
-                if (a.want != null && !simulate(player, level, a.target, n, face, hit, stand, a.want)) continue;
+                if (a.want != null && !simulate(player, level, a.target, n, face, hit, stand, a.want)) {
+                    // Stairs and doors face the way the player looks: the nearest spot may give the wrong
+                    // facing while another side of the block gives the right one. Try the other spots (the
+                    // test course's stairs and door were silently skipped).
+                    stand = null;
+                    for (Vec3 alt : standCandidates(level, player, hit, a.target, n)) {
+                        if (simulate(player, level, a.target, n, face, hit, alt, a.want)) {
+                            stand = alt;
+                            break;
+                        }
+                    }
+                    if (stand == null) continue;
+                }
                 a.against = n;
                 a.face = face;
                 a.hit = hit;
@@ -850,6 +880,26 @@ final class NaturalBuilder {
             if (best != null) return best;
         }
         return best;
+    }
+
+    /** Every spot around `target` from which `hit` can be clicked, nearest to the player first. */
+    private List<Vec3> standCandidates(ClientLevel level, LocalPlayer player, Vec3 hit, BlockPos target, BlockPos against) {
+        double eyeH = player.getEyeHeight();
+        Vec3 feet = player.position();
+        List<Vec3> out = new ArrayList<>();
+        for (double h : new double[]{1.6, 2.4, 0.9, 3.2, -1.2, -2.0}) {
+            for (double r : new double[]{2.2, 3.0, 1.4}) {
+                for (int k = 0; k < 16; k++) {
+                    double ang = k * Math.PI / 8;
+                    Vec3 cand = new Vec3(target.getX() + 0.5 + Math.cos(ang) * r, target.getY() + h,
+                            target.getZ() + 0.5 + Math.sin(ang) * r);
+                    if (cand.add(0, eyeH, 0).distanceTo(hit) > REACH || !bodyFree(level, cand, target)) continue;
+                    if (visible(level, player, cand.add(0, eyeH, 0), hit, against)) out.add(cand);
+                }
+            }
+        }
+        out.sort((x, y) -> Double.compare(x.distanceTo(feet), y.distanceTo(feet)));
+        return out;
     }
 
     /** The first block the eye->hit ray meets is `against` (or nothing solid is in the way). */
@@ -1328,6 +1378,10 @@ final class NaturalBuilder {
         if (b == Blocks.FARMLAND || b == Blocks.DIRT_PATH) return Blocks.DIRT.defaultBlockState();
         if (b instanceof FlowerPotBlock && b != Blocks.FLOWER_POT) return Blocks.FLOWER_POT.defaultBlockState();
         if (b instanceof CropBlock) return b.defaultBlockState();
+        // A double slab is two clicks: a bottom slab, then a second slab onto its top.
+        if (b instanceof SlabBlock && want.getValue(SlabBlock.TYPE) == SlabType.DOUBLE) {
+            return want.setValue(SlabBlock.TYPE, SlabType.BOTTOM);
+        }
         return want;
     }
 
@@ -1348,6 +1402,8 @@ final class NaturalBuilder {
             return have.isAir() || have.canBeReplaced() ? Items.WATER_BUCKET : null;
         }
         if (wb == Blocks.NETHER_PORTAL) return have.isAir() ? Items.FLINT_AND_STEEL : null;   // light the frame
+        if (hb == wb && wb instanceof SlabBlock && have.getValue(SlabBlock.TYPE) == SlabType.BOTTOM
+                && want.getValue(SlabBlock.TYPE) == SlabType.DOUBLE) return wb.asItem();
         if ((hb == Blocks.DIRT || hb == Blocks.GRASS_BLOCK) && wb == Blocks.FARMLAND) return Items.WOODEN_HOE;
         if ((hb == Blocks.DIRT || hb == Blocks.GRASS_BLOCK) && wb == Blocks.DIRT_PATH) return Items.WOODEN_SHOVEL;
         if (hb == Blocks.FLOWER_POT && wb instanceof FlowerPotBlock pot && wb != Blocks.FLOWER_POT) {
