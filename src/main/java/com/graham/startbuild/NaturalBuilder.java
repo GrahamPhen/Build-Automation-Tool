@@ -1028,10 +1028,15 @@ final class NaturalBuilder {
         if (item == null || item == Items.AIR) return false;
         Inventory inv = player.getInventory();
         int slot = findHotbar(inv, item);
+        // A stack bigger than the item allows (64 hoes, 64 water buckets) is refused by the server: the
+        // client showed a hoe in hand, the server held something else, and every till did nothing - the
+        // farmland of storybook_cottage and the test course's tc_garden. Such a slot is sent again.
+        if (slot >= 0 && inv.getItem(slot).getCount() > inv.getItem(slot).getMaxStackSize()) slot = -1;
         if (slot < 0) {
             slot = nextHotbar;
             nextHotbar = (nextHotbar + 1) % 9;
-            ItemStack stack = new ItemStack(item, 64);
+            ItemStack stack = new ItemStack(item);
+            stack.setCount(stack.getMaxStackSize());
             inv.setItem(slot, stack.copy());
             mc.gameMode.handleCreativeModeItemAdd(stack, 36 + slot);
         }
