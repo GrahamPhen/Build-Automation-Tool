@@ -340,6 +340,14 @@ final class NaturalBuilder {
                         float[] rot = lookAngles(player.getEyePosition(), c.hit);
                         player.setYRot(rot[0]);
                         player.setXRot(rot[1]);
+                        // The server takes the facing from the look it last RECEIVED, and a new look is only
+                        // sent with the next tick's movement: clicking in the same tick as the last turn put
+                        // stairs down facing the old way (tc_details: north became west, storybook's roof).
+                        // Blocks that face the player's look wait one tick after the final turn.
+                        if (facesLook(c.want) && !lookSent) {
+                            lookSent = true;
+                            return;
+                        }
                     }
                     act(mc, player, level, current);
                     lastActTick = ticks;
@@ -362,6 +370,16 @@ final class NaturalBuilder {
     private void enter(Phase p) {
         phase = p;
         phaseTicks = 0;
+        lookSent = false;
+    }
+
+    /** Set once the final look for a facing block has had a tick to reach the server. */
+    private boolean lookSent;
+
+    /** Blocks whose placed state depends on where the player looks (stairs, doors, chests, furnaces...). */
+    private static boolean facesLook(BlockState s) {
+        return s.hasProperty(BlockStateProperties.HORIZONTAL_FACING) || s.hasProperty(BlockStateProperties.FACING)
+                || s.hasProperty(BlockStateProperties.ROTATION_16);
     }
 
     // ================================================================== choosing work
