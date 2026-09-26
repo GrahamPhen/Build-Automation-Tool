@@ -805,13 +805,13 @@ final class NaturalBuilder {
             for (Vec3 hit : hitPoints(n, face)) {
                 Vec3 stand = standFor(level, player, hit, a.target, n);
                 if (stand == null) continue;
-                if (a.want != null && !simulate(player, level, a.target, n, face, hit, stand, a.want)) {
+                if (a.want != null && !simulateRobust(player, level, a.target, n, face, hit, stand, a.want)) {
                     // Stairs and doors face the way the player looks: the nearest spot may give the wrong
                     // facing while another side of the block gives the right one. Try the other spots (the
                     // test course's stairs and door were silently skipped).
                     stand = null;
                     for (Vec3 alt : standCandidates(level, player, hit, a.target, n)) {
-                        if (simulate(player, level, a.target, n, face, hit, alt, a.want)) {
+                        if (simulateRobust(player, level, a.target, n, face, hit, alt, a.want)) {
                             stand = alt;
                             break;
                         }
@@ -929,6 +929,22 @@ final class NaturalBuilder {
             if (best != null) return best;
         }
         return best;
+    }
+
+    /**
+     * simulate(), and for blocks that face the way the player looks, also from 0.3 blocks off the spot in
+     * each direction: the player stops within 0.25 of it, and a spot right on a 45-degree boundary gave the
+     * right facing only exactly there (storybook_cottage's roof stairs: "wrong facing from here", given up).
+     */
+    private boolean simulateRobust(LocalPlayer player, ClientLevel level, BlockPos target, BlockPos against,
+                                   Direction face, Vec3 hit, Vec3 stand, BlockState want) {
+        if (!simulate(player, level, target, against, face, hit, stand, want)) return false;
+        if (!want.hasProperty(BlockStateProperties.HORIZONTAL_FACING)) return true;
+        double[][] offs = {{0.3, 0}, {-0.3, 0}, {0, 0.3}, {0, -0.3}};
+        for (double[] o : offs) {
+            if (!simulate(player, level, target, against, face, hit, stand.add(o[0], 0, o[1]), want)) return false;
+        }
+        return true;
     }
 
     /** Every spot around `target` from which `hit` can be clicked, nearest to the player first. */
