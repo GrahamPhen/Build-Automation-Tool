@@ -76,9 +76,18 @@ for (const r of rows) {
   }
 }
 const builds = [...byName.values()].filter((b) => !b.error && b.blocks > 0);
+const category = (n) => {
+  n = n.toLowerCase();
+  if (/haunt|halloween|pumpkin|witch|ghost|vampire|spooky|grave|skull|reaper|zombie|creepy|coffin|necro/.test(n)) return 'halloween';
+  if (/house|home|cottage|cabin|mansion|villa|castle|tower|church|temple|shrine|hut|barn|farm|inn|tavern|shop|store|palace|fort|keep|manor|library|lighthouse|windmill|greenhouse|treehouse|tree_house|village|town|bridge|station|school|hotel|market|bakery|blacksmith|mill/.test(n)) return 'building';
+  if (/ship|boat|car_|truck|vehicle|plane|train|tank|bus|helicopter|rocket|submarine|mech/.test(n)) return 'vehicle';
+  return 'statue-character-other';
+};
 for (const b of builds) {
   b.fits = b.blocks <= 55000 && b.x <= 144 && b.z <= 144;
   b.hours = +(b.blocks / 9000).toFixed(1);
+  b.category = category(b.name);
+  b.safe = b.name.replace(/[^A-Za-z0-9_+.-]+/g, '_');     // no spaces: queue lines split on whitespace
 }
 builds.sort((a, b) => a.blocks - b.blocks);
 const errors = [...byName.values()].filter((b) => b.error);
@@ -89,8 +98,8 @@ console.log(`  <= 5k: ${bucket(0, 5000)}   5-15k: ${bucket(5000, 15000)}   15-30
 console.log(`  fit one take (<= 55k blocks, footprint <= 144): ${builds.filter((b) => b.fits).length}`);
 if (out) {
   const esc = (s) => `"${String(s).replace(/"/g, '""')}"`;
-  const lines = ['name,formats,x,y,z,blocks,fits,hours,file'];
-  for (const b of builds) lines.push([esc(b.name), b.formats.join('+'), b.x, b.y, b.z, b.blocks, b.fits, b.hours, esc(b.file)].join(','));
+  const lines = ['name,safe,category,formats,x,y,z,blocks,fits,hours,file'];
+  for (const b of builds) lines.push([esc(b.name), esc(b.safe), b.category, b.formats.join('+'), b.x, b.y, b.z, b.blocks, b.fits, b.hours, esc(b.file)].join(','));
   for (const e of errors) lines.push([esc(e.name), e.ext, '', '', '', '', '', '', esc(`ERROR ${e.error}`)].join(','));
   fs.writeFileSync(out, lines.join('\n') + '\n');
   console.log('wrote ' + out);
