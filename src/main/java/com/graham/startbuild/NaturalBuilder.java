@@ -819,6 +819,7 @@ final class NaturalBuilder {
             Direction face = d.getOpposite();
             // Pillars take their axis from the clicked face: skip faces that cannot give the wanted axis.
             if (a.want != null && a.want.hasProperty(BlockStateProperties.AXIS)
+                    && !barkAllRound(a.want.getBlock())
                     && face.getAxis() != a.want.getValue(BlockStateProperties.AXIS)) continue;
             for (Vec3 hit : hitPoints(n, face)) {
                 Vec3 stand = standFor(level, player, hit, a.target, n);
@@ -905,8 +906,18 @@ final class NaturalBuilder {
 
     /** Pillars (logs) take their axis from the clicked face. */
     private static boolean axisOk(Direction face, BlockState want) {
-        if (!want.hasProperty(BlockStateProperties.AXIS)) return true;
+        if (!want.hasProperty(BlockStateProperties.AXIS) || barkAllRound(want.getBlock())) return true;
         return face.getAxis() == want.getValue(BlockStateProperties.AXIS);
+    }
+
+    /**
+     * Wood / hyphae blocks (bark on all six faces) look the same along every axis, so any axis will do.
+     * Insisting on the schematic's axis left 2,800 cells of treehouse_80's trunk unplaced: inside a thick
+     * trunk there was often no face along that axis left to click.
+     */
+    static boolean barkAllRound(Block b) {
+        String id = net.minecraft.core.registries.BuiltInRegistries.BLOCK.getKey(b).getPath();
+        return id.endsWith("_wood") || id.endsWith("_hyphae");
     }
 
     /**
@@ -1471,6 +1482,7 @@ final class NaturalBuilder {
             if (connecting && (n.equals("north") || n.equals("south") || n.equals("east") || n.equals("west")
                     || n.equals("up") || n.equals("down"))) continue;
             if (b instanceof StairBlock && n.equals("shape")) continue;
+            if (n.equals("axis") && barkAllRound(b)) continue;
             // Worked out by the game from the surroundings when placed: leaf distance to a log, grass
             // "snowy" from the block above. A schematic's value cannot be clicked into place.
             if (n.equals("waterlogged") || n.equals("moisture") || n.equals("distance") || n.equals("snowy")) continue;
