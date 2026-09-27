@@ -293,6 +293,7 @@ final class NaturalBuilder {
                     // after three tries, set this one aside at once rather than grinding on.
                     replan = false;
                     if (++replans > 3) {
+                        if (hop(player, level)) return;
                         park(current, "could not fly into position (stuck)");
                         enter(Phase.PLAN);
                     } else if (!routeTo(mc, player, level)) {
@@ -301,6 +302,7 @@ final class NaturalBuilder {
                     }
                 } else if (phaseTicks > moveBudget) {
                     // Far longer than the trip should take: give up on this one for now, try something else.
+                    if (hop(player, level)) return;
                     park(current, "could not fly into position");
                     enter(Phase.PLAN);
                 }
@@ -945,7 +947,7 @@ final class NaturalBuilder {
                     Vec3 cand = new Vec3(target.getX() + 0.5 + Math.cos(ang) * r, target.getY() + h,
                             target.getZ() + 0.5 + Math.sin(ang) * r);
                     if (cand.add(0, eyeH, 0).distanceTo(hit) > REACH) continue;
-                    if (!bodyFree(level, cand, target)) continue;
+                    if (!bodyFree(level, cand, target) || badStand(target, cand)) continue;
                     double cost = cand.distanceTo(feet);
                     if (cost >= bestCost) continue;
                     if (!visible(level, player, cand.add(0, eyeH, 0), hit, against)) continue;
@@ -987,7 +989,8 @@ final class NaturalBuilder {
                     double ang = k * Math.PI / 8;
                     Vec3 cand = new Vec3(target.getX() + 0.5 + Math.cos(ang) * r, target.getY() + h,
                             target.getZ() + 0.5 + Math.sin(ang) * r);
-                    if (cand.add(0, eyeH, 0).distanceTo(hit) > REACH || !bodyFree(level, cand, target)) continue;
+                    if (cand.add(0, eyeH, 0).distanceTo(hit) > REACH || !bodyFree(level, cand, target)
+                            || badStand(target, cand)) continue;
                     if (visible(level, player, cand.add(0, eyeH, 0), hit, against)) out.add(cand);
                 }
             }
@@ -1552,6 +1555,45 @@ final class NaturalBuilder {
             if (status[i] == 1 || status[i] == 3) remaining--;
             status[i] = 2;
         }
+    }
+
+    /** Spots the player could not fly to, per target: planning skips them so a retry tries somewhere else
+     *  (haunted_halloween_80 lost 129 cells to "could not fly into position" - every retry, and both final
+     *  checks, picked the same unreachable spot again within seconds). */
+    private final Map<BlockPos, List<Vec3>> badStands = new HashMap<>();
+    private static final int HOP_AFTER = 2;
+    private static final double HOP_RANGE = 24;
+    int hops;
+
+    private boolean badStand(BlockPos target, Vec3 cand) {
+        List<Vec3> bad = badStands.get(target);
+        if (bad == null) return false;
+        for (Vec3 b : bad) if (b.distanceToSqr(cand) < 0.36) return true;
+        return false;
+    }
+
+    /**
+     * The flight to `current.stand` failed. Remember that spot; once two different spots have failed for this
+     * target, hop the last few blocks instead (a short teleport, like the watchdog's - a cut in the timelapse)
+     * and click from there as usual. @return true if hopping (stay in MOVE until the server moves us).
+     */
+    private boolean hop(LocalPlayer player, ClientLevel level) {
+        if (current == null || current.stand == null) return false;
+        List<Vec3> bad = badStands.computeIfAbsent(current.target, k -> new ArrayList<>());
+        bad.add(current.stand);
+        if (bad.size() <= HOP_AFTER || bad.size() > HOP_AFTER + 2) return false;   // two hops per target at most
+        Vec3 s = current.stand;
+        if (s.distanceTo(player.position()) > HOP_RANGE || !bodyFree(level, s, current.target)) return false;
+        hops++;
+        StartBuildMod.LOGGER.info("[StartBuild] hop to {} for {} ({} spots failed)", s, current.target, bad.size() - 1);
+        StartBuildMod.runServerCommand("tp @s " + s.x + " " + s.y + " " + s.z);
+        route = new ArrayList<>(List.of(s));
+        replans = 0;
+        stuckTicks = 0;
+        bestWaypointDist = Double.MAX_VALUE;
+        moveBudget = 100;
+        enter(Phase.MOVE);
+        return true;
     }
 
     private void park(Action a, String why) {
