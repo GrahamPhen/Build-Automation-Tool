@@ -1119,7 +1119,9 @@ final class NaturalSession {
      */
     private static void checkQueue(Minecraft mc, StartBuildConfig cfg) throws Exception {
         Path queue = FabricLoader.getInstance().getConfigDir().resolve("startbuild-queue.txt");
-        if (!Files.exists(queue) || autoMode || biomeLookup != null || exploreTarget != null || autoConfirmTicks > 0
+        // state: this runs right after the site search's tick, which may just have confirmed a site and started
+        // a take - popping then lost the line ("a build is running"): halloween+witch_80 vanished that way.
+        if (state != State.IDLE || !Files.exists(queue) || autoMode || biomeLookup != null || exploreTarget != null || autoConfirmTicks > 0
                 || previewName != null || ticksInWorld < (int) (cfg.autoRunDelaySeconds * 20)
                 || ticksInWorld - idleSince < 30 * 20) {
             return;
