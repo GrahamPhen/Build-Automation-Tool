@@ -555,8 +555,9 @@ final class NaturalSession {
             found.add(r);
             if (found.size() >= 5) break;
         }
-        StartBuildMod.LOGGER.info("[StartBuild] findsite {} wish={} biome={} centre={} radius={} -> {} site(s) in {} ms",
-                siteName, wish, biomes, centre, radius, found.size(), System.currentTimeMillis() - t0);
+        StartBuildMod.LOGGER.info("[StartBuild] findsite {} wish={} biome={} centre={} radius={} -> {} site(s) in {} ms ({})",
+                siteName, wish, biomes, centre, radius, found.size(), System.currentTimeMillis() - t0,
+                PlacementFinder.lastRejects);
         if (found.isEmpty()) {
             StartBuildMod.chat("§eNo good new spot here" + (wish == PlacementFinder.Wish.WATER ? " next to water" : "") + ".");
             autoRetry(mc);

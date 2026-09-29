@@ -145,6 +145,9 @@ final class PlacementFinder {
         return sum[(z2 + 1) * w + x2 + 1] - sum[z1 * w + x2 + 1] - sum[(z2 + 1) * w + x1] + sum[z1 * w + x1];
     }
 
+    /** Why the last find() kept or dropped its candidate corners - logged with each search. */
+    static String lastRejects = "";
+
     /** @return up to `wanted` sites, best first. */
     static List<Result> find(ClientLevel level, BlockPos centre, int radius, SchematicModel m, Wish wish, int wanted) {
         return find(level, centre, radius, m, wish, wanted, List.of());
@@ -220,6 +223,11 @@ final class PlacementFinder {
         // 3. Score candidate corners on a 3-block grid.
         List<Result> all = new ArrayList<>();
         int[] hs = new int[foot.size()];
+        // A few pond columns under a big footprint are filled in on camera (the session's wet-fill limit
+        // still rejects real lakes): demanding bone-dry ground found no plains site at all for 100-wide
+        // builds (Jigglypuff, Sugar_Skull_60 - "0 site(s)" in 16 areas).
+        int maxWet = foot.size() / stride / 100;
+        int rUnloaded = 0, rWet = 0, rBiome = 0, rBuilt = 0, rWaterAbove = 0, rWish = 0;
         for (int cz = 8; cz + m.sizeZ < size - 8; cz += 3) {
             for (int cx = 8; cx + m.sizeX < size - 8; cx += 3) {
                 int n = 0;
@@ -233,15 +241,16 @@ final class PlacementFinder {
                     hs[n++] = surf[i];
                     near = Math.min(near, wd[i]);
                 }
-                if (bad || wet > 0) continue;
-                if (!biomes.isEmpty() && !biomeMatches(level.getBiome(new BlockPos(x0 + cx + m.sizeX / 2, 64, z0 + cz + m.sizeZ / 2)), biomes)) continue;
+                if (bad) { rUnloaded++; continue; }
+                if (wet > maxWet) { rWet++; continue; }
+                if (!biomes.isEmpty() && !biomeMatches(level.getBiome(new BlockPos(x0 + cx + m.sizeX / 2, 64, z0 + cz + m.sizeZ / 2)), biomes)) { rBiome++; continue; }
                 // Never on or next to anything man-made (an earlier build, a village): the character would
                 // tear it down as "terrain".
-                if (builtIn(builtSum, size, cx - 4, cz - 4, cx + m.sizeX + 3, cz + m.sizeZ + 3) > 0) continue;
+                if (builtIn(builtSum, size, cx - 4, cz - 4, cx + m.sizeX + 3, cz + m.sizeZ + 3) > 0) { rBuilt++; continue; }
                 int[] sorted = java.util.Arrays.copyOf(hs, n);
                 java.util.Arrays.sort(sorted);
                 int ground = sorted[n / 2];                      // base sits on the median surface
-                if (waterAboveBase(surf, water, size, cx, cz, m.sizeX, m.sizeZ, ground)) continue;
+                if (waterAboveBase(surf, water, size, cx, cz, m.sizeX, m.sizeZ, ground)) { rWaterAbove++; continue; }
                 int overhang = 0, buried = 0;
                 for (int k = 0; k < n; k++) {
                     int d = hs[k] - ground;
@@ -249,13 +258,13 @@ final class PlacementFinder {
                     else if (d > 0) buried += d * d;
                 }
                 int ring = near;                                 // columns from the footprint to water
-                double cost = overhang * 3.0 + buried * 2.0;
+                double cost = overhang * 3.0 + buried * 2.0 + wet * 60.0;   // dry ground still wins
                 // Earthworks around it: the terraforming blends the pad into the land over ~12 blocks, so
                 // height differences there are blocks the character has to dig or fill on camera.
                 cost += ringEarthworks(surf, size, cx, cz, m.sizeX, m.sizeZ, ground) * 1.5;
                 switch (wish) {
                     case WATER -> {
-                        if (ring > 8) continue;                  // not by the water at all
+                        if (ring > 8) { rWish++; continue; }     // not by the water at all
                         // The bank should be low: water not far below the base.
                         cost += ring * 4.0;
                     }
@@ -283,6 +292,8 @@ final class PlacementFinder {
             }
         }
         all.sort((a, b) -> Double.compare(a.cost(), b.cost()));
+        lastRejects = "ok " + all.size() + ", rejected: unloaded " + rUnloaded + ", wet " + rWet + ", biome " + rBiome
+                + ", built " + rBuilt + ", water above " + rWaterAbove + ", wish " + rWish;
 
         // 4. Only for the leaders: count trees/rocks inside the build volume (the costly check), re-rank,
         //    and keep sites that do not overlap each other.
