@@ -89,6 +89,7 @@ final class NaturalBuilder {
     private long lastActTick = -100;
     private static final int MAX_ATTEMPTS = 4;
     private static final int SCAFFOLD_SEARCH_DEPTH = 5;
+    private static final int DEEP_SCAFFOLD_DEPTH = 32;
 
     private final SchematicModel model;
     private final BlockPos origin;
@@ -661,7 +662,7 @@ final class NaturalBuilder {
         }
         stuck.sort((a, b) -> Double.compare(eye.distanceToSqr(Vec3.atCenterOf(worldOf(a))),
                 eye.distanceToSqr(Vec3.atCenterOf(worldOf(b)))));
-        int tried = 0;
+        int tried = 0, deep = 0;
         for (int i : stuck) {
             if (++tried > 25) break;
             BlockPos t = worldOf(i);
@@ -681,6 +682,12 @@ final class NaturalBuilder {
                 BlockPos n = t.relative(d);
                 if (!freeForScaffold(level, n)) continue;
                 List<BlockPos> chain = chainTo(level, n, t);
+                // A part floating well clear of everything (Grim_Reaper's stone, 24+ blocks up, left 1033 cells:
+                // 5-block supports never reached it). Once its first block is in, the rest go on against it.
+                if (chain == null && deep < 2) {
+                    deep++;
+                    chain = chainTo(level, n, t, DEEP_SCAFFOLD_DEPTH);
+                }
                 if (chain == null) continue;
                 // Would clicking n's face (towards t) give the exact state we want? Check it now, with the
                 // chain treated as solid, so we never build a scaffold that cannot help.
@@ -718,6 +725,10 @@ final class NaturalBuilder {
 
     /** Cells from an anchored spot to `end` (inclusive, anchored end first), or null. BFS through air. */
     private List<BlockPos> chainTo(ClientLevel level, BlockPos end, BlockPos avoid) {
+        return chainTo(level, end, avoid, SCAFFOLD_SEARCH_DEPTH);
+    }
+
+    private List<BlockPos> chainTo(ClientLevel level, BlockPos end, BlockPos avoid, int maxDepth) {
         Map<BlockPos, BlockPos> prev = new HashMap<>();
         Deque<BlockPos> q = new ArrayDeque<>();
         q.add(end);
@@ -734,7 +745,7 @@ final class NaturalBuilder {
                 }
                 return chain;           // anchored end first, `end` last
             }
-            if (depth.get(c) >= SCAFFOLD_SEARCH_DEPTH) continue;
+            if (depth.get(c) >= maxDepth) continue;
             for (Direction d : Direction.values()) {
                 BlockPos n = c.relative(d);
                 if (prev.containsKey(n) || n.equals(avoid) || !freeForScaffold(level, n)) continue;
