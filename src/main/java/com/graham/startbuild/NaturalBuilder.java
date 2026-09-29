@@ -1510,6 +1510,12 @@ final class NaturalBuilder {
         if (b instanceof SlabBlock && want.getValue(SlabBlock.TYPE) == SlabType.DOUBLE) {
             return want.setValue(SlabBlock.TYPE, SlabType.BOTTOM);
         }
+        // Leaf litter, wildflowers, pink petals: one segment per click (Mimikyu_House left 83 leaf litter
+        // cells with more than one segment undone).
+        if (b instanceof net.minecraft.world.level.block.SegmentableBlock sb
+                && want.hasProperty(sb.getSegmentAmountProperty()) && want.getValue(sb.getSegmentAmountProperty()) > 1) {
+            return want.setValue(sb.getSegmentAmountProperty(), 1);
+        }
         return want;
     }
 
@@ -1532,6 +1538,11 @@ final class NaturalBuilder {
         if (wb == Blocks.NETHER_PORTAL) return have.isAir() ? Items.FLINT_AND_STEEL : null;   // light the frame
         if (hb == wb && wb instanceof SlabBlock && have.getValue(SlabBlock.TYPE) == SlabType.BOTTOM
                 && want.getValue(SlabBlock.TYPE) == SlabType.DOUBLE) return wb.asItem();
+        if (hb == wb && wb instanceof net.minecraft.world.level.block.SegmentableBlock sb
+                && have.hasProperty(sb.getSegmentAmountProperty())
+                && have.getValue(sb.getSegmentAmountProperty()) < want.getValue(sb.getSegmentAmountProperty())) {
+            return wb.asItem();                 // one more segment onto the pile
+        }
         if ((hb == Blocks.DIRT || hb == Blocks.GRASS_BLOCK) && wb == Blocks.FARMLAND) return Items.WOODEN_HOE;
         if ((hb == Blocks.DIRT || hb == Blocks.GRASS_BLOCK) && wb == Blocks.DIRT_PATH) return Items.WOODEN_SHOVEL;
         if (hb == Blocks.FLOWER_POT && wb instanceof FlowerPotBlock pot && wb != Blocks.FLOWER_POT) {
