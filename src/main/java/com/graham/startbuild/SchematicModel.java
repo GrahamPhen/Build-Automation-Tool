@@ -119,11 +119,34 @@ final class SchematicModel {
                     }
                 }
             }
-            return model;
+            return model.withoutEmptyBottom();
         } catch (Throwable t) {
             StartBuildMod.LOGGER.warn("[StartBuild] schematic read failed: {}", Reflect.describe(t));
             return null;
         }
+    }
+
+    /**
+     * Drops empty layers at the bottom of the box. Some downloaded schematics carry air below the build: the
+     * site finder takes the footprint from the bottom two layers, found none, and every search came back with
+     * "0 site(s)" (Jigglypuff, Sugar_Skull_60, sylveon were skipped) - and the build would have floated.
+     */
+    private SchematicModel withoutEmptyBottom() {
+        int empty = 0;
+        outer:
+        for (; empty < sizeY - 1; empty++) {
+            for (int z = 0; z < sizeZ; z++) {
+                for (int x = 0; x < sizeX; x++) {
+                    if (states[index(x, empty, z)] != null) break outer;
+                }
+            }
+        }
+        if (empty == 0) return this;
+        SchematicModel t = new SchematicModel(sizeX, sizeY - empty, sizeZ);
+        System.arraycopy(states, empty * sizeZ * sizeX, t.states, 0, t.states.length);
+        t.solidCount = solidCount;
+        StartBuildMod.LOGGER.info("[StartBuild] schematic: {} empty layer(s) below the build dropped", empty);
+        return t;
     }
 
     private static int regionMin(int origin, int size) {
