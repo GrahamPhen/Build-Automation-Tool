@@ -26,6 +26,7 @@ import net.minecraft.world.level.block.FallingBlock;
 import net.minecraft.world.level.block.HugeMushroomBlock;
 import net.minecraft.world.level.block.PipeBlock;
 import net.minecraft.world.level.block.SlabBlock;
+import net.minecraft.world.level.block.SnowLayerBlock;
 import net.minecraft.world.level.block.StairBlock;
 import net.minecraft.world.level.block.WallBlock;
 import net.minecraft.world.level.block.state.BlockState;
@@ -1527,6 +1528,10 @@ final class NaturalBuilder {
                 && want.hasProperty(sb.getSegmentAmountProperty()) && want.getValue(sb.getSegmentAmountProperty()) > 1) {
             return want.setValue(sb.getSegmentAmountProperty(), 1);
         }
+        // Snow: one layer per click (house_enchanted's roof - 618 cells of 2-8 layers - was skipped silently).
+        if (b == Blocks.SNOW && want.getValue(SnowLayerBlock.LAYERS) > 1) {
+            return want.setValue(SnowLayerBlock.LAYERS, 1);
+        }
         return want;
     }
 
@@ -1553,6 +1558,10 @@ final class NaturalBuilder {
                 && have.hasProperty(sb.getSegmentAmountProperty())
                 && have.getValue(sb.getSegmentAmountProperty()) < want.getValue(sb.getSegmentAmountProperty())) {
             return wb.asItem();                 // one more segment onto the pile
+        }
+        if (hb == Blocks.SNOW && wb == Blocks.SNOW
+                && have.getValue(SnowLayerBlock.LAYERS) < want.getValue(SnowLayerBlock.LAYERS)) {
+            return Items.SNOW;                  // one more layer
         }
         if ((hb == Blocks.DIRT || hb == Blocks.GRASS_BLOCK) && wb == Blocks.FARMLAND) return Items.WOODEN_HOE;
         if ((hb == Blocks.DIRT || hb == Blocks.GRASS_BLOCK) && wb == Blocks.DIRT_PATH) return Items.WOODEN_SHOVEL;
