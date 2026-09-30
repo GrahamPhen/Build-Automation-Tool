@@ -27,7 +27,7 @@
   at 21:25:48. The first barrel-facing attempt was retried; final placement/state correctness is still
   **unverified**. The held 49-entry queue retains its original hash and order; no active queue exists.
   `config\startbuild-queue.hold` has **49 pending entries**, exactly the remaining Sarox imports in mapping
-  order, all with `plains`; the first new build will retry at a fresh site after installation. Hold the other
+  order, all with `plains`; the first new build is now retrying at the fresh site above. Hold the other
   49 during that retry, then restore their exact order only after the saved world and mod's final state
   mismatch count are verified. This is a maintenance validation hold, not a user pause.
   The old six (`green_dragon`, `Sugar_Skull_60`, `Jigglypuff`, `sylveon`, `house_enchanted`, `Grim_Reaper`)
