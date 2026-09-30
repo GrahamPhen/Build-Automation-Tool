@@ -6,15 +6,26 @@
 
 ---
 
-## 0. Where things stand right now (2026-09-30 09:10 Denver; manager review afterward)
+## 0. Where things stand right now (2026-09-30 09:39 Denver)
 
-- **5 accepted takes; 2.17.19 installed; Dragon's Gate is the last verified active take.**
-  Dragon's Gate recorded at 09:06:12, origin `-20095,66,-29059`; last block at 09:10:33 entered the
-  normal 30-second recording tail. Its completion/acceptance is unreviewed until the next heartbeat.
-  Verified 26.2 PID17084 started 08:50:25.6443198. The last verified queue has **44 pending**, first
-  `Enchanting_Tower_TIER_1_ plains`, Briarwood exactly once last; exact authorized remainder SHA256
-  `CF3497507C7F1B64949ABB4839562DA2F81EF99CFD73AFEAF4F723455D6DF3D2`.
-  Graham's explicit skip/reorder/continue authorization supersedes the earlier Briarwood-only gate.
+- **6 accepted takes; 2.17.19 installed; reviewed 2.17.20 awaits a normal between-takes install.**
+  Farmer House TIER1 recorded09:31:51 at`-23541,64,-29691`; progress09:38:17 was1211placed/308left,
+  layer10, with no watchdog. Verified26.2 PID17084/start08:50:25.6443198. Enchanting Tower TIER1
+  Done09:20:23 accepted with minor exceptions: fresh1815/1822 correct IDs,7missing,0wrong; only two
+  small pressure plates exposed, four candles/bell hidden. Readable replay`2026-09-30T09_20_22.zip`,
+  ID`785fe666-7e28-4744-b209-12cb752617d4`; evidence`enchant-tier1-092023-*`. The later
+  `enchanting_tower` completion is preserved in the deployment delta; review is deferred to the next
+  heartbeat. Graham's explicit skip/reorder/continue authorization supersedes the old Briarwood-only gate.
+- **Dragon's Gate remains unaccepted; its portal ignition fix is reviewed and pushed.**
+  Done09:11:04/replay`2026-09-30T09_11_03.zip`, ID`807df083-1c2f-4d5b-a29e-39dce22d38cb` preserved.
+  Fresh world772/796 correct IDs; central valid3x8obsidian frame contains21air+3fire instead of portal.
+  Early ignition09:08:12 preceded the top frame; fire then took the permanent no-item fallback.
+  Commit`79b6f4a`/2.17.20 waits for read-only vanilla frame validation, clears fire with real clicks,
+  and uses real flint-and-steel ignition; no portal writes. Astra reviewed; full build30tests passed;
+  push verified09:35:17.3020250, before incident deadline09:38:23.1775523 (start09:23:23.1775523).
+  Coding repair is resolved; installation/retry validation remain pending. All90tracked files,
+  launchers and new jar mirrored; SHA256`50A89F0605184242E30D851CC77878D1BBA58D67B26C59D6A401ECE9E49F678E`.
+  Evidence:`dragon-091104-*`, `portal-{red-test,green-build}.log`, `portalshape-javap.txt`.
 - **Windmill and Clock Tower accepted with minor exceptions after manager review.**
   Windmill Done08:49:07 on2.17.18: readable replay `2026-09-30T08_49_06.zip`, recording ID
   `20d1cd74-226b-4cc2-831a-ab9803ad60e5`; fresh world2457/2460 correct IDs,3 missing,0 wrong IDs.
@@ -25,13 +36,17 @@
   Both have zero watchdogs and no leftover supports; no material body loss is indicated. These are
   saved-world/report judgments, with no direct video inspection or defect-free claim. Evidence prefixes:
   `build\queue-start-20260929\windmill-084907-` and `clock-090534-`; IDs accepted once in runtime state.
-- **The helper reported completed at08:50:27; one bounded watcher was rearmed.**
-  Restart helper13940 waited for normal Windmill Done, closed verified26.2 at08:50:09, confirmed closed
-  at08:50:14, installed2.17.19 while closed and relaunched Clock Tower. Helper exited successfully;
-  no helper remains armed. Old watcher24712 ended normally at08:49. Sole hidden120-minute watcher42408
-  started09:07:41.3156629; output `build\queue-start-20260929\watch-0907.{stdout,stderr}.log`.
-  Runtime cursor:601lines/82874bytes/write09:10:33.8784922; rotated `2026-09-30-2.log.gz` consumed through
-  all805lines, including the remainder after750. Installation hold is cleared; preserve Briarwood last.
+- **One installer waits for normal Farmer Done; Dragon's Gate retry is next, Briarwood last.**
+  Hidden helper21020/start09:37:23.6126580 uses`tools/ops/restart-between-takes.ps1`; it closes only
+  verified26.2 after normal Done, installs2.17.20 while closed, and launches the authorized DragonGate retry.
+  Held42 = one DragonGate retry + exact41 original remainder; Briarwood exactly once last. Hold SHA256
+  `C2E22C109890674A5C77381CD19E04C1A11D090BF31484F5966A7AEB6E40A6CF`; byte-preserved original backup
+  `portal-2.17.20/original-remainder.hold`, SHA256`7F78D71D6D991EDA1E0AC03625BB978B4E8ABACA4A9D257A10F6F7F0FC3F4512`.
+  Helper output is under`build\queue-start-20260929\portal-2.17.20\`. Sole hidden120minute watcher11648
+  started09:39:15.4792170; output`watch-0938.{stdout,stderr}.log`; prior watchers42408/22188 ended on Done.
+  Cursor1008lines/175709bytes/write09:38:17.4645991; archive`2026-09-30-2.log.gz` remains consumed805lines.
+  **Stop the verified helper FIRST before any safety-stop file, preserving held42 and recording IDs.**
+  Previous helper13940 completed08:50:27 after installing2.17.19; it remains exited.
 - **Exact stall fix 2.17.19 is reviewed, pushed and installed; Briarwood live validation remains pending.**
   Commit `6ec2ca3`, full build, 29 tests passed. Preserved replay evidence identifies spruce gate
   `(-18932,79,-29830)`: 3351 coordinate occurrences, 1116 air updates and 1677 state13507 updates.
@@ -128,7 +143,7 @@
   command-safe build IDs; [filename/ID/hash/size mapping](docs/sarox-import-20260929.csv). All 55 fit the
   ≤ 55k-block / ≤ 144×144 footprint guidance. Target hashes and offline parsing verified; 50 authorized,
   excluding only standalone `Pine 1.litematic` through `Pine 5.litematic`; `Pinecrest Watchtower` is included.
-  Five Sarox takes are accepted with documented exceptions; the original Briarwood and its2.17.18 retry
+  Six Sarox takes are accepted with documented exceptions; the original Briarwood and its2.17.18 retry
   remain interrupted/unaccepted and preserved. Its authorized next attempt is last in the active queue.
 - Queue audit and monitoring state: `build\queue-start-20260929\runtime-state.json` holds the active
   game/queue/watcher and rotation-aware lifecycle cursor. The current retry watcher is identified above.
