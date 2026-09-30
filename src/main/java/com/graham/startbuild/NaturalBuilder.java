@@ -620,6 +620,9 @@ final class NaturalBuilder {
                         markDone(i);
                         continue;
                     }
+                    // Igniting a bottom layer before its top frame exists only leaves fire. Wait for
+                    // vanilla's read-only frame validation, then use the normal real-click action.
+                    if (want.is(Blocks.NETHER_PORTAL) && !portalFrameReady(level, p, want)) continue;
                     // The first half stays in place while its partner is built; vanilla then joins them.
                     if (waitingForChestPartner(have, want) && !hasSingleChestPartner(level, p, want)) continue;
                     if (isWater(want) && !waterContained(x, y, z)) continue;
@@ -658,6 +661,10 @@ final class NaturalBuilder {
             } else if (use != null) {
                 a = new Action(isWater(model.states[i]) ? Kind.USE_AIR : Kind.USE, p, model.states[i], false);
                 a.item = use;
+            } else if (model.states[i].is(Blocks.NETHER_PORTAL) && have.is(Blocks.FIRE)) {
+                // Flint and steel cannot replace existing fire. Break the failed ignition with a
+                // real click; the next air-cell action lights the now-complete frame.
+                a = new Action(Kind.BREAK, p, model.states[i], false);
             } else if (!have.isAir() && !have.canBeReplaced()) {
                 a = new Action(Kind.BREAK, p, model.states[i], false);
             } else {
@@ -855,6 +862,11 @@ final class NaturalBuilder {
 
     /** Fills in how to do `a` (which face to click, where to stand). @return false if it cannot be done now. */
     private boolean prepare(Minecraft mc, LocalPlayer player, ClientLevel level, Action a) {
+        if (a.want != null && a.want.is(Blocks.NETHER_PORTAL)) {
+            // Portal has no inventory block item. Never make a recoverable fire/air cell status4.
+            if (a.kind == Kind.PLACE) return false;
+            if (a.kind == Kind.USE && !portalFrameReady(level, a.target, a.want)) return false;
+        }
         if (a.kind == Kind.BREAK) {
             BlockState have = level.getBlockState(a.target);
             if (have.isAir()) {
@@ -1774,6 +1786,11 @@ final class NaturalBuilder {
 
     private static Item placeItem(BlockState want) {
         return placeState(want).getBlock().asItem();
+    }
+
+    private static boolean portalFrameReady(net.minecraft.world.level.BlockGetter level, BlockPos target, BlockState want) {
+        return net.minecraft.world.level.portal.PortalShape.findAnyShape(level, target,
+                want.getValue(BlockStateProperties.HORIZONTAL_AXIS)).isValid();
     }
 
     /**

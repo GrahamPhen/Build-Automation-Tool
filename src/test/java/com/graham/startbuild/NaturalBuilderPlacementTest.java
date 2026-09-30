@@ -142,6 +142,43 @@ class NaturalBuilderPlacementTest {
         assertEquals(ChestType.LEFT, NaturalBuilder.itemPlacementState((BlockItem) Items.CHEST, joined).getValue(ChestBlock.TYPE));
     }
 
+    @Test void portalIgnitionWaitsForTheCompleteVanillaFrameAndNeverParksFireAsNoItem() throws Exception {
+        var unsafeField = sun.misc.Unsafe.class.getDeclaredField("theUnsafe");
+        unsafeField.setAccessible(true);
+        var level = (PlacementLevel) ((sun.misc.Unsafe) unsafeField.get(null)).allocateInstance(PlacementLevel.class);
+        level.states = new HashMap<>();
+        var target = new BlockPos(-20085, 68, -29053);
+        var want = Blocks.NETHER_PORTAL.defaultBlockState().setValue(BlockStateProperties.HORIZONTAL_AXIS, Direction.Axis.X);
+        // Exact Dragon's Gate footprint: a 3x8 interior, built from bottom to top.
+        for (int x = -1; x <= 3; x++) level.states.put(target.offset(x, -1, 0), Blocks.OBSIDIAN.defaultBlockState());
+        for (int y = 0; y < 8; y++) {
+            level.states.put(target.offset(-1, y, 0), Blocks.OBSIDIAN.defaultBlockState());
+            level.states.put(target.offset(3, y, 0), Blocks.OBSIDIAN.defaultBlockState());
+        }
+        var model = SchematicModel.blank(1, 1, 1);
+        model.states[0] = want;
+        var builder = new NaturalBuilder(model, target, 0);
+        Class<?> kind = Class.forName("com.graham.startbuild.NaturalBuilder$Kind");
+        Class<?> action = Class.forName("com.graham.startbuild.NaturalBuilder$Action");
+        var constructor = action.getDeclaredConstructor(kind, BlockPos.class, BlockState.class, boolean.class);
+        constructor.setAccessible(true);
+        var prepare = NaturalBuilder.class.getDeclaredMethod("prepare", net.minecraft.client.Minecraft.class,
+                net.minecraft.client.player.LocalPlayer.class, ClientLevel.class, action);
+        prepare.setAccessible(true);
+        Object use = java.util.Arrays.stream(kind.getEnumConstants()).filter(k -> k.toString().equals("USE")).findFirst().orElseThrow();
+        assertFalse((boolean) prepare.invoke(builder, null, null, level, constructor.newInstance(use, target, want, false)),
+                "do not even plan the real ignition click until the top frame exists");
+        for (int x = -1; x <= 3; x++) level.states.put(target.offset(x, 8, 0), Blocks.OBSIDIAN.defaultBlockState());
+        assertTrue(net.minecraft.world.level.portal.PortalShape.findAnyShape(level, target, Direction.Axis.X).isValid());
+        assertSame(Items.FLINT_AND_STEEL, NaturalBuilder.specialUse(Blocks.AIR.defaultBlockState(), want));
+        level.states.put(target, Blocks.FIRE.defaultBlockState());
+        Object place = java.util.Arrays.stream(kind.getEnumConstants()).filter(k -> k.toString().equals("PLACE")).findFirst().orElseThrow();
+        assertFalse((boolean) prepare.invoke(builder, null, null, level, constructor.newInstance(place, target, want, false)));
+        var status = NaturalBuilder.class.getDeclaredField("status");
+        status.setAccessible(true);
+        assertEquals(1, ((byte[]) status.get(builder))[0], "fire must never become permanent no-item status4");
+    }
+
     @Test void bannersUseActualPoseValidationWithoutWaivingFinalRotation() {
         var wanted = net.minecraft.core.registries.BuiltInRegistries.BLOCK
                 .getValue(net.minecraft.resources.Identifier.withDefaultNamespace("white_banner"))
@@ -158,6 +195,7 @@ class NaturalBuilderPlacementTest {
         @Override public BlockState getBlockState(BlockPos pos) { return states.getOrDefault(pos, Blocks.AIR.defaultBlockState()); }
         @Override public FluidState getFluidState(BlockPos pos) { return Fluids.EMPTY.defaultFluidState(); }
         @Override public boolean hasNeighborSignal(BlockPos pos) { return false; }
+        @Override public int getMinY() { return -64; }
         @Override public boolean isUnobstructed(BlockState state, BlockPos pos, CollisionContext context) { return true; }
     }
 
