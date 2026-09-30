@@ -26,6 +26,10 @@ import org.slf4j.LoggerFactory;
  *   /stopbuild   /buildstatus
  */
 public class StartBuildMod implements ClientModInitializer {
+    /** Public because the mixin handler executes inside Minecraft's LocalPlayer package. */
+    public static boolean suppressBuilderSignEditor(net.minecraft.core.BlockPos pos) {
+        return NaturalBuilder.suppressSignEditor(pos);
+    }
 
     public static final Logger LOGGER = LoggerFactory.getLogger("startbuild");
 

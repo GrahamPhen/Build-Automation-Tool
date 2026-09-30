@@ -15,11 +15,20 @@ import net.minecraft.world.item.BlockItem;
 import net.minecraft.world.item.Item;
 import net.minecraft.world.item.ItemStack;
 import net.minecraft.world.item.Items;
+import net.minecraft.world.item.SignItem;
+import net.minecraft.world.entity.player.Input;
+import net.minecraft.network.protocol.game.ServerboundPlayerInputPacket;
+import net.minecraft.network.protocol.game.ServerboundMovePlayerPacket;
 import net.minecraft.world.item.context.BlockPlaceContext;
 import net.minecraft.world.level.block.BaseEntityBlock;
 import net.minecraft.world.level.block.Block;
 import net.minecraft.world.level.block.Blocks;
 import net.minecraft.world.level.block.CropBlock;
+import net.minecraft.world.level.block.ChestBlock;
+import net.minecraft.world.level.block.ChiseledBookShelfBlock;
+import net.minecraft.world.level.block.TrapDoorBlock;
+import net.minecraft.world.level.block.FenceGateBlock;
+import net.minecraft.world.level.block.LeverBlock;
 import net.minecraft.world.level.block.CrossCollisionBlock;
 import net.minecraft.world.level.block.FlowerPotBlock;
 import net.minecraft.world.level.block.FallingBlock;
@@ -34,6 +43,7 @@ import net.minecraft.world.level.block.state.properties.BlockStateProperties;
 import net.minecraft.world.level.block.state.properties.DoubleBlockHalf;
 import net.minecraft.world.level.block.state.properties.Property;
 import net.minecraft.world.level.block.state.properties.SlabType;
+import net.minecraft.world.level.block.state.properties.ChestType;
 import net.minecraft.world.phys.AABB;
 import net.minecraft.world.level.ClipContext;
 import net.minecraft.world.phys.BlockHitResult;
@@ -109,6 +119,7 @@ final class NaturalBuilder {
     private final Set<BlockPos> scaffolds = new HashSet<>();
     /** Temporary blocks that could not be reached: not tried again before this tick. */
     private final Map<BlockPos, Long> scaffoldRetryAt = new HashMap<>();
+    private final Map<BlockPos, Long> digRetryAt = new HashMap<>();
     /** Set by fly() when the player is blocked mid-route: MOVE plans the route again. */
     private boolean replan;
     private int scaffoldCleanups;
@@ -163,6 +174,7 @@ final class NaturalBuilder {
         Vec3 stand;                     // where the player should be (feet)
         Item item;
         int facingTries;                // PLACE: moves back to the stand because the facing was off
+        int bookSlot = -1;
 
         Action(Kind kind, BlockPos target, BlockState want, boolean scaffold) {
             this.kind = kind;
@@ -595,6 +607,8 @@ final class NaturalBuilder {
                         markDone(i);
                         continue;
                     }
+                    // The first half stays in place while its partner is built; vanilla then joins them.
+                    if (waitingForChestPartner(have, want)) continue;
                     if (isWater(want) && !waterContained(x, y, z)) continue;
                     boolean special = specialUse(have, want) != null;
                     boolean needsBreak = !special && !have.isAir() && !have.canBeReplaced();
@@ -802,6 +816,30 @@ final class NaturalBuilder {
         }
 
         if (a.kind == Kind.USE || a.kind == Kind.USE_AIR) {
+            if (a.want.getBlock() instanceof ChiseledBookShelfBlock) {
+                int slot = nextBookSlot(level.getBlockState(a.target), a.want);
+                if (slot < 0) return false;
+                a.bookSlot = slot;
+                a.against = a.target;
+                a.face = a.want.getValue(ChiseledBookShelfBlock.FACING);
+                a.hit = bookshelfHit(a.target, a.face, slot);
+                a.stand = standFor(level, player, a.hit, a.target, a.target);
+                return a.stand != null;
+            }
+            if (a.want.getBlock() instanceof TrapDoorBlock || a.want.getBlock() instanceof FenceGateBlock
+                    || a.want.getBlock() instanceof LeverBlock) {
+                for (Direction face : facesByPreference(level, player, a.target)) {
+                    // Opening a gate from its front reverses its facing; open it from behind instead.
+                    if (a.want.getBlock() instanceof FenceGateBlock
+                            && face != a.want.getValue(BlockStateProperties.HORIZONTAL_FACING).getOpposite()) continue;
+                    Vec3 hit = Vec3.atCenterOf(a.target).add(face.getStepX() * .5, face.getStepY() * .5, face.getStepZ() * .5);
+                    Vec3 stand = standFor(level, player, hit, a.target, a.target);
+                    if (stand == null) continue;
+                    a.against = a.target; a.face = face; a.hit = hit; a.stand = stand;
+                    return true;
+                }
+                return false;
+            }
             boolean fromBelow = a.kind == Kind.USE_AIR || a.want.getBlock() == Blocks.NETHER_PORTAL;
             BlockPos on = fromBelow ? a.target.below() : a.target;
             if (fromBelow && !isSolid(level, on)) return false;
@@ -830,6 +868,7 @@ final class NaturalBuilder {
             BlockPos n = a.target.relative(d);
             BlockState ns = level.getBlockState(n);
             if (!isClickable(ns)) continue;
+            if (!placementSneaks(a.want, ns) && requiresSneak(ns)) continue;
             Direction face = d.getOpposite();
             // Pillars take their axis from the clicked face: skip faces that cannot give the wanted axis.
             if (a.want != null && a.want.hasProperty(BlockStateProperties.AXIS)
@@ -899,23 +938,65 @@ final class NaturalBuilder {
         Item item = placeItem(want);
         if (!(item instanceof BlockItem blockItem)) return false;
         float oy = player.getYRot(), ox = player.getXRot();
+        Vec3 originalPosition = player.position();
+        Input originalInput = player.input.keyPresses;
         try {
+            // Item placement also checks entity obstruction and position-dependent rules. Query at
+            // the proposed stand, then restore before the next tick sends any movement to the server.
+            player.setPos(stand);
             Vec3 eye = stand.add(0, player.getEyeHeight(), 0);
             float[] rot = lookAngles(eye, hit);
             player.setYRot(rot[0]);
             player.setXRot(rot[1]);
+            player.input.keyPresses = clickInput(originalInput, placementSneaks(want, level.getBlockState(against)));
             BlockPlaceContext ctx = new BlockPlaceContext(player, InteractionHand.MAIN_HAND, new ItemStack(item),
                     new BlockHitResult(hit, face, against, false));
+            ctx = blockItem.updatePlacementContext(ctx);
+            if (ctx == null) return false;
             if (!ctx.getClickedPos().equals(target) || !ctx.canPlace()) return false;
-            want = placeState(want);
-            BlockState result = blockItem.getBlock().getStateForPlacement(ctx);
-            return result != null && matches(result, want);
+            BlockState result = itemPlacementState(blockItem, ctx);
+            return result != null && (matches(result, want) || matches(result, placeState(want)));
         } catch (Throwable t) {
             return false;
         } finally {
+            player.setPos(originalPosition);
             player.setYRot(oy);
             player.setXRot(ox);
+            player.input.keyPresses = originalInput;
         }
+    }
+
+    // BlockItem chooses standing versus wall variants and applies its own placement rules. Calling
+    // getBlock().getStateForPlacement() skipped that choice and rejected every wall sign in Aether.
+    private static final java.lang.reflect.Method ITEM_PLACEMENT = itemPlacementMethod();
+
+    private static java.lang.reflect.Method itemPlacementMethod() {
+        try {
+            var method = BlockItem.class.getDeclaredMethod("getPlacementState", BlockPlaceContext.class);
+            method.setAccessible(true);
+            return method;
+        } catch (ReflectiveOperationException e) {
+            throw new ExceptionInInitializerError(e);
+        }
+    }
+
+    static BlockState itemPlacementState(BlockItem item, BlockPlaceContext context) throws ReflectiveOperationException {
+        return (BlockState) ITEM_PLACEMENT.invoke(item, context);
+    }
+
+    static Input placementInput(Input original) {
+        return clickInput(original, true);
+    }
+
+    private static Input clickInput(Input original, boolean shift) {
+        return new Input(original.forward(), original.backward(), original.left(), original.right(),
+                original.jump(), shift, original.sprint());
+    }
+
+    static boolean placementSneaks(BlockState want, BlockState against) {
+        // Sneaking on ordinary ground prevents auto-joining. Sneaking on the partner chest explicitly joins it.
+        return want == null || !(want.getBlock() instanceof ChestBlock)
+                || want.getValue(ChestBlock.TYPE) == ChestType.SINGLE || against.getBlock() instanceof ChestBlock;
     }
 
     /** Pillars (logs) take their axis from the clicked face. */
@@ -944,7 +1025,7 @@ final class NaturalBuilder {
         Vec3 feet = player.position();
         // Staying put reads most naturally, and is the common case once the builder is working an area.
         if (feet.add(0, eyeH, 0).distanceTo(hit) <= REACH && bodyFree(level, feet, target)
-                && visible(level, player, feet.add(0, eyeH, 0), hit, against)) {
+                && !badStand(target, feet) && visible(level, player, feet.add(0, eyeH, 0), hit, against)) {
             return feet;
         }
         Vec3 best = null;
@@ -982,7 +1063,7 @@ final class NaturalBuilder {
     private boolean simulateRobust(LocalPlayer player, ClientLevel level, BlockPos target, BlockPos against,
                                    Direction face, Vec3 hit, Vec3 stand, BlockState want) {
         if (!simulate(player, level, target, against, face, hit, stand, want)) return false;
-        if (!want.hasProperty(BlockStateProperties.HORIZONTAL_FACING)) return true;
+        if (!facesLook(want)) return true;
         double[][] offs = {{0.3, 0}, {-0.3, 0}, {0, 0.3}, {0, -0.3}};
         for (double[] o : offs) {
             if (!simulate(player, level, target, against, face, hit, stand.add(o[0], 0, o[1]), want)) return false;
@@ -1046,9 +1127,21 @@ final class NaturalBuilder {
             return;
         }
         BlockHitResult hit = new BlockHitResult(a.hit, a.face, a.against, false);
-        InteractionResult r = mc.gameMode.useItemOn(player, InteractionHand.MAIN_HAND, hit);
-        if (r.consumesAction()) {
-            player.swing(InteractionHand.MAIN_HAND);
+        Input input = player.input.keyPresses;
+        // PLACE sneaks against containers/toggles; USE deliberately interacts with them. Send the same
+        // input to the server before the click, and restore it even if placement fails.
+        Input clickInput = clickInput(input, a.kind == Kind.PLACE && placementSneaks(a.want, level.getBlockState(a.against)));
+        try {
+            player.input.keyPresses = clickInput;
+            player.connection.send(new ServerboundPlayerInputPacket(clickInput));
+            player.connection.send(new ServerboundMovePlayerPacket.PosRot(player.position(), player.getYRot(),
+                    player.getXRot(), player.onGround(), player.horizontalCollision));
+            if (a.kind == Kind.PLACE && a.item instanceof SignItem) rememberPlacedSign(a.target);
+            InteractionResult r = mc.gameMode.useItemOn(player, InteractionHand.MAIN_HAND, hit);
+            if (r.consumesAction()) player.swing(InteractionHand.MAIN_HAND);
+        } finally {
+            player.input.keyPresses = input;
+            player.connection.send(new ServerboundPlayerInputPacket(input));
         }
         if (a.scaffold) {
             scaffolds.add(a.target);
@@ -1101,6 +1194,13 @@ final class NaturalBuilder {
         }
         if (a.kind == Kind.USE && have.getBlock() == a.want.getBlock() && have.getBlock() instanceof CropBlock) {
             progress();         // bone meal grew it part of the way: another click follows (not a wrong block)
+            return;
+        }
+        if (a.kind == Kind.USE && have.getBlock() instanceof ChiseledBookShelfBlock
+                && have.getBlock() == a.want.getBlock() && a.bookSlot >= 0
+                && have.getValue(ChiseledBookShelfBlock.SLOT_OCCUPIED_PROPERTIES.get(a.bookSlot))
+                && nextBookSlot(have, a.want) >= 0) {
+            progress();         // one occupied slot per real book click
             return;
         }
         int n = attempts.merge(i, 1, Integer::sum);
@@ -1264,22 +1364,57 @@ final class NaturalBuilder {
             BlockPos solid = !free(level, c) ? c : !free(level, c.above()) ? c.above() : null;
             if (solid == null) continue;
             // Dig through: stand in the last free cell before it, break it, the rest is planned after.
-            BlockPos prev = k > 0 ? cells.get(k - 1) : BlockPos.containing(from);
             Action dig = new Action(Kind.BREAK, solid, null, false);
-            Direction face = Direction.getApproximateNearest(prev.getX() - c.getX(), prev.getY() - c.getY(),
-                    prev.getZ() - c.getZ());
-            dig.against = solid;
-            dig.face = face;
-            dig.hit = Vec3.atCenterOf(solid).add(face.getStepX() * 0.5, face.getStepY() * 0.5, face.getStepZ() * 0.5);
-            dig.stand = feetAt(prev);
+            // A partial slab can share the player's starting grid cell. Its centre is not necessarily
+            // a valid stand: use the real feet and only accept approaches reachable through clear air.
+            Vec3 approach = k > 0 ? feetAt(cells.get(k - 1)) : from;
+            List<Vec3> prefix = smooth(level, from, cells.subList(0, k), approach);
+            Vec3 prior = from;
+            for (Vec3 waypoint : prefix) {
+                if (!clearLine(level, prior, waypoint)) {
+                    digRetryAt.put(solid, ticks + 200);
+                    return false;
+                }
+                prior = waypoint;
+            }
+            boolean planned = false;
+            for (Direction face : facesByPreference(level, player, solid)) {
+                Vec3 hit = Vec3.atCenterOf(solid).add(face.getStepX() * .5, face.getStepY() * .5, face.getStepZ() * .5);
+                List<Vec3> stands = new ArrayList<>(List.of(approach));
+                stands.addAll(standCandidates(level, player, hit, solid, solid));
+                for (Vec3 stand : stands) {
+                    if (!validEscapeStand(level, player, solid, hit, approach, stand)) continue;
+                    dig.against = solid; dig.face = face; dig.hit = hit; dig.stand = stand;
+                    planned = true;
+                    break;
+                }
+                if (planned) break;
+            }
+            if (!planned) {
+                digRetryAt.put(solid, ticks + 200);
+                return false;
+            }
             dig.dig = true;
             StartBuildMod.LOGGER.info("[StartBuild] shut in: breaking {} at {} to get out", name(level.getBlockState(solid)), solid);
             current = dig;
-            route = smooth(level, from, cells.subList(0, k), dig.stand);
+            route = prefix;
+            route.add(dig.stand);
             return true;
         }
         route = smooth(level, from, cells, goal);
         return true;
+    }
+
+    private boolean validEscapeStand(ClientLevel level, LocalPlayer player, BlockPos solid, Vec3 hit,
+                                     Vec3 approach, Vec3 stand) {
+        return !badStand(solid, stand) && level.noCollision(player, escapeBody(stand))
+                && stand.add(0, player.getEyeHeight(), 0).distanceTo(hit) <= REACH
+                && visible(level, player, stand.add(0, player.getEyeHeight(), 0), hit, solid)
+                && clearLine(level, approach, stand);
+    }
+
+    static AABB escapeBody(Vec3 feet) {
+        return new AABB(feet.x - .3, feet.y, feet.z - .3, feet.x + .3, feet.y + 1.8, feet.z + .3);
     }
 
     private long lastSurfaced = -10_000;
@@ -1312,6 +1447,7 @@ final class NaturalBuilder {
      * earlier stage, or anything else nothing would put back.
      */
     private boolean diggable(ClientLevel level, BlockPos p) {
+        if (digRetryAt.getOrDefault(p, 0L) > ticks) return false;
         BlockState s = level.getBlockState(p);
         if (!s.getFluidState().isEmpty() || s.getDestroySpeed(level, p) < 0) return false;
         if (scaffolds.contains(p)) return true;
@@ -1447,14 +1583,15 @@ final class NaturalBuilder {
     }
 
     private static boolean isClickable(BlockState s) {
-        if (s.isAir() || s.canBeReplaced()) return false;
-        Block b = s.getBlock();
-        // Clicking these would open a screen or toggle them instead of placing against them.
-        if (b instanceof BaseEntityBlock) return false;
-        String n = b.getClass().getSimpleName();
-        return !(n.contains("Door") || n.contains("Gate") || n.contains("Button") || n.contains("Lever")
+        return !s.isAir() && !s.canBeReplaced(); // PLACE bypasses their interaction by sneaking.
+    }
+
+    private static boolean requiresSneak(BlockState s) {
+        if (s.getBlock() instanceof BaseEntityBlock) return true;
+        String n = s.getBlock().getClass().getSimpleName();
+        return n.contains("Door") || n.contains("Gate") || n.contains("Button") || n.contains("Lever")
                 || n.contains("Table") || n.contains("Bed") || n.contains("Anvil") || n.contains("Note")
-                || n.contains("Repeater") || n.contains("Comparator") || n.contains("Cake") || n.contains("Bell"));
+                || n.contains("Repeater") || n.contains("Comparator") || n.contains("Cake") || n.contains("Bell");
     }
 
     private boolean isSolid(ClientLevel level, BlockPos p) {
@@ -1515,6 +1652,15 @@ final class NaturalBuilder {
     /** What the first click puts down for `want` (dirt before farmland, an empty pot before a potted plant). */
     static BlockState placeState(BlockState want) {
         Block b = want.getBlock();
+        if (b instanceof TrapDoorBlock || b instanceof FenceGateBlock) {
+            return want.setValue(BlockStateProperties.OPEN, false).setValue(BlockStateProperties.POWERED, false);
+        }
+        if (b instanceof LeverBlock) return want.setValue(BlockStateProperties.POWERED, false);
+        if (b instanceof ChestBlock) return want.setValue(ChestBlock.TYPE, ChestType.SINGLE);
+        if (b instanceof ChiseledBookShelfBlock) {
+            for (var slot : ChiseledBookShelfBlock.SLOT_OCCUPIED_PROPERTIES) want = want.setValue(slot, false);
+            return want;
+        }
         if (b == Blocks.FARMLAND || b == Blocks.DIRT_PATH) return Blocks.DIRT.defaultBlockState();
         if (b instanceof FlowerPotBlock && b != Blocks.FLOWER_POT) return Blocks.FLOWER_POT.defaultBlockState();
         if (b instanceof CropBlock) return b.defaultBlockState();
@@ -1543,9 +1689,14 @@ final class NaturalBuilder {
      * The item to USE on a cell that already holds the first step: hoe on dirt (farmland), shovel on dirt
      * (path), the plant on an empty pot, bone meal on a young crop, a bucket for water. Null otherwise.
      */
-    private static Item specialUse(BlockState have, BlockState want) {
+    static Item specialUse(BlockState have, BlockState want) {
         Block wb = want.getBlock();
         Block hb = have.getBlock();
+        if (hb == wb && (wb instanceof TrapDoorBlock || wb instanceof FenceGateBlock)
+                && have.getValue(BlockStateProperties.OPEN) != want.getValue(BlockStateProperties.OPEN)) return wb.asItem();
+        if (hb == wb && wb instanceof LeverBlock
+                && have.getValue(BlockStateProperties.POWERED) != want.getValue(BlockStateProperties.POWERED)) return wb.asItem();
+        if (hb == wb && wb instanceof ChiseledBookShelfBlock && nextBookSlot(have, want) >= 0) return Items.BOOK;
         // Water: a bucket into air, or into water that is only flowing there (a source is wanted).
         if (isWater(want)) {
             if (!have.getFluidState().isEmpty()) return have.getFluidState().isSource() ? null : Items.WATER_BUCKET;
@@ -1571,6 +1722,44 @@ final class NaturalBuilder {
         }
         if (hb == wb && wb instanceof CropBlock && !have.equals(want)) return Items.BONE_MEAL;
         return null;
+    }
+
+    static boolean waitingForChestPartner(BlockState have, BlockState want) {
+        return want.getBlock() instanceof ChestBlock && have.getBlock() == want.getBlock()
+                && want.getValue(ChestBlock.TYPE) != ChestType.SINGLE && have.getValue(ChestBlock.TYPE) == ChestType.SINGLE
+                && matches(have, placeState(want));
+    }
+
+    static int nextBookSlot(BlockState have, BlockState want) {
+        if (!(want.getBlock() instanceof ChiseledBookShelfBlock) || have.getBlock() != want.getBlock()) return -1;
+        for (int i = 0; i < ChiseledBookShelfBlock.SLOT_OCCUPIED_PROPERTIES.size(); i++) {
+            var slot = ChiseledBookShelfBlock.SLOT_OCCUPIED_PROPERTIES.get(i);
+            if (want.getValue(slot) && !have.getValue(slot)) return i;
+        }
+        return -1;
+    }
+
+    static Vec3 bookshelfHit(BlockPos pos, Direction facing, int slot) {
+        ChiseledBookShelfBlock shelf = (ChiseledBookShelfBlock) Blocks.CHISELED_BOOKSHELF;
+        for (double horizontal : new double[]{1.0 / 6, .5, 5.0 / 6}) {
+            Vec3 hit = facing.getAxis() == Direction.Axis.Z
+                    ? new Vec3(pos.getX() + horizontal, pos.getY() + (slot < 3 ? .75 : .25), pos.getZ() + (facing == Direction.SOUTH ? 1 : 0))
+                    : new Vec3(pos.getX() + (facing == Direction.EAST ? 1 : 0), pos.getY() + (slot < 3 ? .75 : .25), pos.getZ() + horizontal);
+            if (shelf.getHitSlot(new BlockHitResult(hit, facing, pos, false), facing).orElse(-1) == slot) return hit;
+        }
+        throw new IllegalArgumentException("Invalid bookshelf slot " + slot);
+    }
+
+    private static final Map<BlockPos, Long> placedSigns = new HashMap<>();
+
+    private static void rememberPlacedSign(BlockPos pos) {
+        long now = System.nanoTime();
+        placedSigns.values().removeIf(expiry -> expiry < now);
+        placedSigns.put(pos.immutable(), now + 30_000_000_000L);
+    }
+
+    static boolean suppressSignEditor(BlockPos pos) {
+        return NaturalSession.isActive() && placedSigns.getOrDefault(pos, 0L) > System.nanoTime();
     }
 
     /** The upper half of a door/tall plant is placed together with its lower half. */
@@ -1629,6 +1818,7 @@ final class NaturalBuilder {
 
     private void park(Action a, String why) {
         lastProblem = why + " (" + (a == null ? "?" : a.target) + ")";
+        if (a != null && a.dig) digRetryAt.put(a.target, ticks + 200);
         if (a != null && a.scaffold) {
             if (a.kind == Kind.BREAK) scaffoldRetryAt.put(a.target, ticks + 1200);
             if (a.kind == Kind.PLACE) {

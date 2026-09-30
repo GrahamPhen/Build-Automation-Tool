@@ -2,32 +2,66 @@
 # take runs, so the mod cannot start the next take before the restart. When the take ends, the recording
 # game (26.2 only - never the other Minecraft) is closed like clicking X, the newest jar installed, and the
 # game relaunched with the first held line armed; the rest goes back into the queue.
+$ErrorActionPreference = 'Stop'
 $me = Join-Path $env:TEMP 'startbuild-overnight.log'
 function Say($m) { Add-Content $me ("{0}  {1}" -f (Get-Date -Format 'HH:mm:ss'), $m) }
 $inst = Join-Path $env:APPDATA 'PrismLauncher\instances\BuildRecording\minecraft'
 $log = Join-Path $inst 'logs\latest.log'
 $queue = Join-Path $inst 'config\startbuild-queue.txt'
 $hold = Join-Path $inst 'config\startbuild-queue.hold'
-function RecGame { Get-Process javaw -ErrorAction SilentlyContinue | Where-Object { $_.MainWindowTitle -match '26\.2' } | Select-Object -First 1 }
-
-if (Test-Path $queue) { Move-Item $queue $hold -Force }
-$g = RecGame
-Say "restart-2: queue held; waiting for the take in pid $($g.Id) to end"
-$startLines = (Get-Content $log).Count
-while ($true) {
-    Start-Sleep -Seconds 20
-    if (-not (Get-Process -Id $g.Id -ErrorAction SilentlyContinue)) { Say 'recording game already gone'; break }
-    $end = Get-Content $log | Select-Object -Skip $startLines | Select-String '\[StartBuild\] (Done:|.*Stopped:)' | Select-Object -First 1
-    if ($end) { Say "take ended: $($end.Line)"; break }
+function RecGame {
+    $games = @(Get-Process javaw -ErrorAction SilentlyContinue | Where-Object { $_.MainWindowTitle -match '\b26\.2\b' })
+    if ($games.Count -gt 1) { throw 'More than one Minecraft 26.2 window is open; leaving the queue held.' }
+    if ($games.Count -eq 1) { return $games[0] }
 }
-Start-Sleep -Seconds 45
-$p = Get-Process -Id $g.Id -ErrorAction SilentlyContinue
+function SameRecGame {
+    $p = Get-Process -Id $gameId -ErrorAction SilentlyContinue
+    if ($p -and ($p.ProcessName -ne 'javaw' -or $p.StartTime -ne $gameStarted -or $p.MainWindowTitle -notmatch '\b26\.2\b')) {
+        throw "Recording process identity changed for pid $gameId; leaving the queue held."
+    }
+    return $p
+}
+function TakeState {
+    if (-not (Test-Path -LiteralPath $log) -or (Get-Item -LiteralPath $log).LastWriteTime -lt $gameStarted) { return 'Unknown' }
+    # Ignore unrelated messages after Done. A later search/preparation/recording means a new take is active.
+    $event = Get-Content -LiteralPath $log | Select-String '\[StartBuild\] (Done:|.*Stopped:|left the world during a take|recording discarded|autorun flag found:|queue: next take|hands-free take:|findsite |hands-free: |natural build of |Preparing |recording=|progress:|last block placed)' | Select-Object -Last 1
+    if (-not $event) { return 'Unknown' }
+    if ($event.Line -match '\[StartBuild\] (Done:|.*Stopped:|left the world during a take|recording discarded)') { return 'Idle' }
+    return 'Active'
+}
+$g = RecGame
+if (-not $g) { Say 'no Minecraft 26.2 window found; queue preserved, no restart'; exit 1 }
+$gameId = $g.Id
+$gameStarted = $g.StartTime
+if (Test-Path -LiteralPath $queue) {
+    if (Test-Path -LiteralPath $hold) { throw 'Both queue and held queue exist; refusing to overwrite either.' }
+    Move-Item -LiteralPath $queue -Destination $hold
+}
+if (-not (Test-Path -LiteralPath $hold)) { throw 'No held queue found; no restart.' }
+Say "restart-2: queue held; checking the take in pid $gameId"
+$waiting = $false
+while ($true) {
+    if (-not (SameRecGame)) { Say 'recording game already gone'; break }
+    if ((TakeState) -eq 'Idle') {
+        Say 'take already ended; allowing the recording save to finish'
+        Start-Sleep -Seconds 45
+        if (-not (SameRecGame) -or (TakeState) -eq 'Idle') { break }
+        # A take that started just before the queue was held must also finish before closing.
+    }
+    if (-not $waiting) { Say "waiting for the active take in pid $gameId to end"; $waiting = $true }
+    Start-Sleep -Seconds 20
+}
+$p = SameRecGame
 if ($p) {
     Say 'closing the recording game (window close)'
     [void]$p.CloseMainWindow()
     for ($i = 0; $i -lt 36 -and -not $p.HasExited; $i++) { Start-Sleep -Seconds 5; $p.Refresh() }
-    if (-not $p.HasExited) { Say 'did not exit in 3 min - ending it'; Stop-Process -Id $g.Id -Force; Start-Sleep 10 }
+    if (-not $p.HasExited) {
+        $p = SameRecGame
+        if ($p) { Say 'did not exit in 3 min - ending the same 26.2 process'; Stop-Process -Id $gameId -Force; Start-Sleep 10 }
+    }
 }
+if (SameRecGame) { throw 'Recording game is still open; no install or relaunch.' }
 Say 'game closed'
 Start-Sleep -Seconds 10
 

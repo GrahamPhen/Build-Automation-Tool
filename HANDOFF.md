@@ -1,6 +1,6 @@
 # HANDOFF — Build Automation Tool (StartBuild 2.17.x)
 
-> Read this first. Last updated **2026-09-29**, mod version **2.17.14**, branch `natural-builder-2.0`
+> Read this first. Last updated **2026-09-29**, mod version **2.17.15**, branch `natural-builder-2.0`
 > (pushed to `origin` = https://github.com/GrahamPhen/Build-Automation-Tool). The Baritone-era docs (1.x) are
 > archived in `docs/`; don't follow them. `CLAUDE.md` holds the short rules; this file holds everything else.
 
@@ -8,12 +8,19 @@
 
 ## 0. Where things stand right now (2026-09-29 evening)
 
-- **The build queue is ACTIVE for ONLY the 50 new Sarox builds.** The owner corrected the batch on
+- **The build queue is held for an authorized repair, for ONLY the 50 new Sarox builds.** The owner corrected the batch on
   2026-09-29: skip the six existing builds and go straight to the 50 new ones. `Aether_Cliff_Outpost_tier_1_
   plains` started recording at 20:32:38 in the 26.2 `BuildRecording` instance at `-17367, 64, -26308`;
-  digging finished with 232 blocks broken, and construction reached 257 placed at 20:34:43.
-  `config\startbuild-queue.txt`
-  has **49 pending entries**, exactly the remaining Sarox imports in mapping order, all with `plains`.
+  it finished at 20:52:29 with 203 reported block mismatches after a repeated escape attempt at a roof slab.
+  The recording `2026-09-29T20_52_28.zip` is preserved and must not be rendered as successful: world
+  verification found 203 missing blocks, including 148 visible from outside. The reviewed **2.17.15** fix
+  handles open/toggled blocks, chest pairing, empty bookshelves and blank wall signs, real placement
+  offsets for attached blocks, barrel facing, and reachable escape breaks. `gradlew build` passed all
+  22 tests; eight bounded restart-script mocks passed. Runtime placement is **not yet verified**.
+  `config\startbuild-queue.hold` has **49 pending entries**, exactly the remaining Sarox imports in mapping
+  order, all with `plains`; the first new build will retry at a fresh site after installation. Hold the other
+  49 during that retry, then restore their exact order only after the saved world and mod's final state
+  mismatch count are verified. This is a maintenance validation hold, not a user pause.
   The old six (`green_dragon`, `Sugar_Skull_60`, `Jigglypuff`, `sylveon`, `house_enchanted`, `Grim_Reaper`)
   are skipped and must not be requeued without new authorization. The active `green_dragon` take was
   stopped through the documented stop file at 20:31:14; the mod logged 0 construction blocks placed
@@ -26,8 +33,8 @@
 - Queue audit and monitoring state: `build\queue-start-20260929\` preserves the original held queue,
   reviewed 56-entry proposal and `runtime-state.json` (game/watcher PIDs, logs and lifecycle cursor).
   `switch-new50-20260929\` preserves the 55-entry queue before the correction and stop/start evidence.
-  The old watcher exited after the stop; one hidden `tools\ops\watch-take.ps1 -Minutes 600` (PID 36296,
-  started 20:33:10) watches the new active take. Heartbeat
+  The first Aether watcher (PID 36296) has exited; the 26.2 game is idle following the failed take.
+  A bounded watcher will be started for the patched Aether retry. Heartbeat
   `watch-startbuild-queue` checks this chat every 15 minutes and handles completed takes or actual issues.
   Startup required a process-local WindowsPowerShell module path; no machine environment or mod changed.
 - **Shorts:** 20 builds were edited (50 videos) into `C:\Users\Graham\Desktop\Shorts\`. **15 finished takes
@@ -116,7 +123,7 @@ Owner's non-negotiables (also in `CLAUDE.md`):
 - `<inst>\config\startbuild-queue.txt`: one `name wish` per line (e.g. `ghost_cat_80 taiga`). A line is popped
   30 s after a take ends, only while the mod is idle. `#` lines are ignored.
 - Hold the queue = rename it to `startbuild-queue.hold` (nothing starts). Resume = rename back.
-  **Right now it is active** (§0); consult the live queue/log and runtime state for current progress.
+  **Right now it is held for repair** (§0); consult the live queue/log and runtime state for current progress.
 - Each take: site search (up to 16 areas, cheapest site first, skipping sites whose terraforming exceeds
   1.5× the build or 4000 blocks, deep water fill, flood risk, or within 450 blocks of a past build) →
   recording starts → trees → dig → fill → build → 30 s tail → `Done: ... Recording saved.`
@@ -136,7 +143,8 @@ Owner's non-negotiables (also in `CLAUDE.md`):
   file, so a stop sent during a site search is lost — write it again once `recording=true` appears.
 - **Install a new jar between takes:** `powershell -File tools\ops\restart-between-takes.ps1` (run it
   detached: `Start-Process powershell -WindowStyle Hidden -ArgumentList '-NoProfile','-ExecutionPolicy','Bypass','-File','<path>'`).
-  It holds the queue, waits for the running take's `Done:`, closes ONLY the 26.2 window (CloseMainWindow),
+  It holds the queue, waits for the running take's `Done:` (or recognizes the latest completed idle take),
+  verifies PID/start time/title, closes ONLY the 26.2 window (CloseMainWindow),
   runs the launcher with the first held line, and writes the rest back into the queue. Log:
   `%TEMP%\startbuild-overnight.log`.
 

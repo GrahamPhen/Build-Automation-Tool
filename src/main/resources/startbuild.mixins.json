@@ -1,0 +1,7 @@
+{
+  "required": true,
+  "package": "com.graham.startbuild",
+  "compatibilityLevel": "JAVA_25",
+  "client": ["BuilderSignEditMixin"],
+  "injectors": { "defaultRequire": 1 }
+}

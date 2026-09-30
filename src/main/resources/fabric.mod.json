@@ -9,6 +9,7 @@
 	],
 	"license": "MIT",
 	"environment": "client",
+	"mixins": ["startbuild.mixins.json"],
 	"entrypoints": {
 		"client": [
 			"com.graham.startbuild.StartBuildMod"
