@@ -6,13 +6,28 @@
 
 ---
 
-## 0. Where things stand right now (2026-09-29 evening)
+## 0. Where things stand right now (2026-09-30 00:43 Denver)
 
-- **The authorized Sarox50 queue is running on 2.17.17: 1 accepted take, the second recording, 48 pending.**
+- **PAUSED awaiting explicit Graham guidance: 3 accepted Sarox50 takes, Briarwood stalled/unaccepted,
+  46 pending held.** Accepted: Aether Cliff, Lighthouse and Brackenhollow; existing evidence is in
+  `build\queue-start-20260929\runtime-state.json`. Briarwood recorded from 23:21:10 at
+  `-18665,65,-28265`; two six-minute no-cell-progress watchdogs at 00:31:18 and 00:39:16 preceded
+  the safety stop. One incident budget remains 00:31:18–00:46:18, without reset; no speculative fix
+  was attempted. `broken` counts click attempts. Failed scaffold-break retry limits are a candidate
+  cause only; the live target/cause is unproven. No code was changed or retry launched.
+  The pending queue is preserved in `<inst>\config\startbuild-queue.hold` (46 entries, next
+  `Classic_European_Windmill_TIER_1_ plains`, last `Zyrel_House_TIER_2_ plains`, SHA256
+  `ED84E594A89E9CA47986E56DDAE9BCE3B91D1DC5ACBE9A85F79E9C4CEEE3F337`).
+  The documented stop file was consumed at **00:42:46**; Done at **00:42:47** confirms recording saved:
+  `2026-09-30T00_42_46.zip`, 22,103,224 bytes, 6340 character placements and 6422 mod mismatches.
+  This interrupted take is preserved and excluded from accepted takes. Watcher PID41900 was stopped
+  after identity verification; heartbeat was PAUSED at 00:41:58. Game PID33604 remains open, 26.2 only.
+  Stop evidence: `build\queue-start-20260929\incident-briarwood-stop-delta.log`; all prior replays remain.
+  **Next: wait for explicit user guidance/resume; do not restart builds, queue, watcher or heartbeat.**
+- **Earlier September 29 operating context (superseded by the pause above):**
   Tonight's incident limit is one 15-minute wall-clock budget through fix push (review/tests included),
   with no reset by workers/retries; unresolved or unpushed at the deadline means queue/build/workers and
   heartbeat pause until explicit user guidance/resume. Healthy recordings and hidden defects are exempt.
-  No active incident is known; Lighthouse continues. See `CLAUDE.md` for the stop/preservation procedure.
   Graham accepted `Aether_Cliff_Outpost_tier_1_` on 2026-09-29: "if its only 4 and they are not visible its ok",
   then clarified that missing OR incorrect blocks are acceptable when the recording looks visibly good.
   Do not spend time or usage chasing zero mismatches or repairing invisible defects. Focus on material
@@ -36,7 +51,7 @@
   Earlier failed replays `2026-09-29T20_52_28.zip` (2.17.14; 203 missing, 148 visible) and
   `2026-09-29T21_39_47.zip` (2.17.16; 34 missing, 29 visible, 38 mod mismatches) remain preserved and
   excluded from successful takes. Their existing evidence remains in the ledger and `restart\`.
-- **Queue resumed at 22:40:25** after verifying the held 49 against the authorized mapping/order and SHA256
+- **Historical queue resume at 22:40:25** after verifying the held 49 against the authorized mapping/order and SHA256
   `EC1D251620769FA89ADD40B0083D3009D1C80ACD70D699A58073120BE4071733`. The exact file was moved to
   `config\startbuild-queue.txt`. `Aether_Lighthouse_Vol.1 plains` was consumed automatically; **48 pending
   entries match the exact remainder**, next `Brackenhollow_House_TIER_1_ plains`, last `Zyrel_House_TIER_2_ plains`.
@@ -45,19 +60,19 @@
   in the same 26.2 game PID **33604**. It is terraforming (76 blocks to clear, 66 to place, no trees).
   Load-time unsupported `immersivewind:lantern` / `minecraft:bed` warnings are retained in the log;
   preparation and recording still started. Judge any material visible result at completion.
-  Maintenance hold is cleared; this is not a user pause. Keep the authorized queue moving.
+  That maintenance hold was cleared then; the incident hold above now controls execution.
 - **SaroxBuilds import complete:** all 55 requested `.litematic` files are in `<inst>\schematics\` with
   command-safe build IDs; [filename/ID/hash/size mapping](docs/sarox-import-20260929.csv). All 55 fit the
   ≤ 55k-block / ≤ 144×144 footprint guidance. Target hashes and offline parsing verified; 50 authorized,
   excluding only standalone `Pine 1.litematic` through `Pine 5.litematic`; `Pinecrest Watchtower` is included.
-  One Sarox take is accepted by the user with documented hidden residuals; the second is recording.
+  Three Sarox takes are accepted with documented exceptions; Briarwood is interrupted/unaccepted.
 - Queue audit and monitoring state: `build\queue-start-20260929\runtime-state.json` holds the active
-  game/queue/watcher and rotation-aware lifecycle cursor. Exactly one hidden bounded watcher, PID **27428**,
-  started **22:40:25**, `-Minutes 120`; previous watcher **34484** exited normally after Aether Done at 22:28.
+  game/queue/watcher and rotation-aware lifecycle cursor. No watcher is active following the incident stop.
+  Historical watcher PID27428 started22:40:25; previous PID34484 exited normally after Aether Done22:28.
   Resume evidence and watcher output: `build\queue-start-20260929\resume-user-accepted-20260929\`.
-  Heartbeat `watch-startbuild-queue` checks every 15 minutes using the visibly-good acceptance criterion.
+  Heartbeat `watch-startbuild-queue` normally checks every15minutes; it is now PAUSED.
   The watcher uses a process-local WindowsPowerShell module path; no machine environment/mod changed.
-- **Next:** monitor the active Lighthouse recording with the existing watcher. On completion inspect the
+- **Normal monitoring after an explicitly authorized resume:** on completion inspect the
   fresh world, replay, counts and relevant visibility; accept visibly good takes despite verified hidden
   residuals. Only material visible problems, stalls, failed/empty takes or a user pause justify stopping
   or repairing. Preserve recordings and queue order; do not render more Shorts without new authorization.
