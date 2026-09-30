@@ -22,8 +22,9 @@
   still need editing** (list in §6.4). The owner said: **don't edit more yet** — they are reviewing the
   existing 50 first and will say which cut/style they like.
 - **Outro:** an animated MineSurvive outro was built and approved in its 2nd design, with the badge text
-  changed to "CHECK OUT MY SERVER" (§6.5). It has **not** been applied to the 50 Shorts yet — wait for the
-  owner's go-ahead, then run `tools\shorts\add-outro-all.ps1`.
+  changed to "CHECK OUT MY SERVER" (§6.5). Applied to **all 50 existing Shorts across 20 builds** in each
+  build's `with-outro\` folder; all outputs validated and all originals preserved. The 15 unedited takes
+  and the held build queue remain pending.
 - Owner preference going forward: **fewer Pokémon builds** unless they ask; favour Halloween, houses,
   fantasy, dragons, vehicles, other statues.
 
@@ -275,7 +276,12 @@ rayquaza1; 2 for the rest; spooky music for skull+mask_80, coffin_80, bat_house_
 - Graphics: `tools\shorts\outro-assets\*.png`, made by `outro-assets.ps1` (System.Drawing, Segoe UI Black/Bold).
   Change wording/colours there and re-run it; timings/positions are in `add-outro.ps1`.
 - The first design (static text on a blurred frame) was rejected as "horrible"; the animated one was accepted
-  with the tag text change. Not yet applied to any Short.
+  with the tag text change. Owner approved application; the existing batch created all 50 `with-outro`
+  copies across 20 builds, with 0 failures and 0 skips.
+- Verification: all 50 outputs have 1080×1920 video and audio, add 4.600–4.633 s, and total 2,823,507,221 bytes.
+  All 50 original SHA256 hashes, sizes and modification timestamps are unchanged; three full sample decodes
+  passed. Representative late-outro frames show the approved badge and connection cards without clipping.
+  No additional takes were rendered and the build queue remains held.
 - Server details come from the MineSurvive docs (`docs\INFRASTRUCTURE.md`, handoffs): Java `play.minesurvive.com`,
   Bedrock `bedrock.minesurvive.com:19132` (Geyser), Discord `discord.gg/minesurvive`.
 
