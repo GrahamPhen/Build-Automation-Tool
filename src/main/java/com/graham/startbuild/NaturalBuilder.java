@@ -1187,6 +1187,7 @@ final class NaturalBuilder {
 
     private boolean bodyFree(ClientLevel level, Vec3 feet, BlockPos target) {
         AABB box = new AABB(feet.x - 0.3, feet.y, feet.z - 0.3, feet.x + 0.3, feet.y + 1.8, feet.z + 0.3);
+        if (portalHazard(level, box.inflate(0.15))) return false;
         if (box.intersects(new AABB(target))) return false;
         Minecraft mc = Minecraft.getInstance();
         return level.noCollision(mc.player, box.inflate(0.05));
@@ -1411,6 +1412,11 @@ final class NaturalBuilder {
         // Crossing the site at sprint-fly speed, easing down to the working pace for the last few blocks.
         double speed = Math.min(dist > 8 ? FLY_SPEED_FAR : FLY_SPEED, Math.max(0.12, dist * 0.45));
         Vec3 v = delta.normalize().scale(speed);
+        if (portalHazard(level, escapeBody(pos.add(v)).inflate(0.15))) {
+            route.clear();
+            hover(player);
+            return false;
+        }
         if (player.isInLiquid()) {
             // Water drags and lifts a flying player: a velocity barely moves it, so every fill cell in a
             // lake beside the site ended "stuck" (greenhouse_80). Move it directly, with collision, like swimming.
@@ -1510,7 +1516,7 @@ final class NaturalBuilder {
 
     private boolean validEscapeStand(ClientLevel level, LocalPlayer player, BlockPos solid, Vec3 hit,
                                      Vec3 approach, Vec3 stand) {
-        return !badStand(solid, stand) && level.noCollision(player, escapeBody(stand))
+        return !portalHazard(level, escapeBody(stand).inflate(0.15)) && !badStand(solid, stand) && level.noCollision(player, escapeBody(stand))
                 && stand.add(0, player.getEyeHeight(), 0).distanceTo(hit) <= REACH
                 && visible(level, player, stand.add(0, player.getEyeHeight(), 0), hit, solid)
                 && clearLine(level, approach, stand);
@@ -1539,7 +1545,8 @@ final class NaturalBuilder {
     }
 
     /** The player fits in a cell pair (feet, head) with no collision. */
-    private static boolean free(ClientLevel level, BlockPos p) {
+    private boolean free(ClientLevel level, BlockPos p) {
+        if (portalHazard(level, new AABB(p))) return false;
         BlockState s = level.getBlockState(p);
         return s.getCollisionShape(level, p).isEmpty();
     }
@@ -1550,6 +1557,7 @@ final class NaturalBuilder {
      * earlier stage, or anything else nothing would put back.
      */
     private boolean diggable(ClientLevel level, BlockPos p) {
+        if (portalHazard(level, new AABB(p))) return false;
         if (digRetryAt.getOrDefault(p, 0L) > ticks) return false;
         BlockState s = level.getBlockState(p);
         if (!s.getFluidState().isEmpty() || s.getDestroySpeed(level, p) < 0) return false;
@@ -1627,9 +1635,25 @@ final class NaturalBuilder {
         for (int s = 1; s <= steps; s++) {
             Vec3 p = a.add(d.scale(s / (double) steps));
             AABB box = new AABB(p.x - 0.3, p.y, p.z - 0.3, p.x + 0.3, p.y + 1.8, p.z + 0.3);
+            if (portalHazard(level, box.inflate(0.15))) return false;
             if (!level.noCollision(mc.player, box)) return false;
         }
         return true;
+    }
+
+    /** Reserve future portal cells before ignition as well as every live portal: collision alone is empty. */
+    boolean portalHazard(net.minecraft.world.level.BlockGetter level, AABB body) {
+        for (int x = Mth.floor(body.minX); x < Math.ceil(body.maxX); x++) {
+            for (int y = Mth.floor(body.minY); y < Math.ceil(body.maxY); y++) {
+                for (int z = Mth.floor(body.minZ); z < Math.ceil(body.maxZ); z++) {
+                    BlockPos p = new BlockPos(x, y, z);
+                    int i = indexOf(p);
+                    if ((i >= 0 && model.states[i].is(Blocks.NETHER_PORTAL))
+                            || level.getBlockState(p).is(Blocks.NETHER_PORTAL)) return true;
+                }
+            }
+        }
+        return false;
     }
 
     // ================================================================== looking

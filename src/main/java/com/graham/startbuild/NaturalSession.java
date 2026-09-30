@@ -52,6 +52,8 @@ final class NaturalSession {
     private static int rechecks;
     private static int tickErrors;
     private static Boolean savedPauseOnLostFocus;
+    private static boolean queuePaused;
+    private static String queuedTakeLine;
 
     /** Terraforming stages (one per tree, then the ground: clear, fill), then the build itself. */
     private static List<Terraformer.Part> parts = List.of();
@@ -520,6 +522,7 @@ final class NaturalSession {
         }
         int max = StartBuildConfig.load().autoSiteAttempts;
         if (++autoAttempts >= max) {
+            pauseQueuedTake();
             StartBuildMod.chat("§cHands-free take: no usable site found in " + max + " areas. Giving up.");
             autoMode = false;
             return;
@@ -697,6 +700,12 @@ final class NaturalSession {
 
     private static void tickInner(Minecraft mc) {
         ticksInWorld++;
+        if (state != State.IDLE && mc.level.dimension() != net.minecraft.world.level.Level.OVERWORLD) {
+            pauseQueuedTake();
+            StartBuildMod.chat("§cUnexpected dimension change; saving the interrupted take and holding the queue.");
+            stop();
+            return;
+        }
         if (state != State.IDLE && ticksInWorld % 20 == 0 && stopFileExists()) {
             StartBuildMod.LOGGER.info("[StartBuild] stop file found - stopping");
             deleteStopFile();
@@ -798,6 +807,7 @@ final class NaturalSession {
         waitTicks = Math.max(20, config.preRollTicks());
         state = State.PRE_ROLL;
         StartBuildMod.LOGGER.info("[StartBuild] recording={} {} at {}", recordingByUs, schematicName, origin.toShortString());
+        if (recordingByUs) queuedTakeLine = null;
     }
 
     private static void startStage() {
@@ -954,7 +964,8 @@ final class NaturalSession {
     private static void finish(Minecraft mc) {
         boolean built = building() && builder != null;
         long placed = built ? builder.placed : 0;
-        int wrong = (built && mc.level != null) ? builder.countWrong(mc.level) : -1;
+        int wrong = (built && mc.level != null && mc.level.dimension() == net.minecraft.world.level.Level.OVERWORLD)
+                ? builder.countWrong(mc.level) : -1;
         long minutes = buildStartMillis == 0 ? 0 : (System.currentTimeMillis() - buildStartMillis) / 60000;
         boolean keep = placed > 0;
         boolean saved = false;
@@ -975,9 +986,10 @@ final class NaturalSession {
         idleSince = ticksInWorld;
         buildStartMillis = 0;
         restoreOptions(mc);
-        String summary = String.format("Done: %s - %d placed by the character, %d not matching, %d min"
+        String summary = String.format("Done: %s - %d placed by the character, %s, %d min"
                         + " (terraforming: %d broken, %d placed).",
-                schematicName, placed, wrong, minutes, terrainBroken + (built ? 0 : builder == null ? 0 : builder.broken),
+                schematicName, placed, wrong < 0 ? "verification unavailable" : wrong + " not matching", minutes,
+                terrainBroken + (built ? 0 : builder == null ? 0 : builder.broken),
                 terrainPlaced);
         StartBuildMod.LOGGER.info("[StartBuild] {}{}", summary, saved ? " Recording saved." : "");
         StartBuildMod.chat((wrong == 0 ? "§a" : "§e") + summary
@@ -1119,6 +1131,7 @@ final class NaturalSession {
      * every earlier build, terraform, build, save); when that take ends the next line follows.
      */
     private static void checkQueue(Minecraft mc, StartBuildConfig cfg) throws Exception {
+        if (queuePaused || mc.level.dimension() != net.minecraft.world.level.Level.OVERWORLD || stopFileExists()) return;
         Path queue = FabricLoader.getInstance().getConfigDir().resolve("startbuild-queue.txt");
         // state: this runs right after the site search's tick, which may just have confirmed a site and started
         // a take - popping then lost the line ("a build is running"): halloween+witch_80 vanished that way.
@@ -1137,7 +1150,28 @@ final class NaturalSession {
         Files.write(queue, lines);
         idleSince = ticksInWorld;           // a search that fails at once does not pop the next line right away
         StartBuildMod.LOGGER.info("[StartBuild] queue: next take '{}' ({} line(s) left)", next, lines.size());
+        queuedTakeLine = next;
         startAuto(next);
+    }
+
+    private static void pauseQueuedTake() {
+        queuePaused = true;
+        Path dir = FabricLoader.getInstance().getConfigDir();
+        try {
+            holdFailedQueuedTake(dir.resolve("startbuild-queue.txt"), dir.resolve("startbuild-queue.hold"), queuedTakeLine);
+            queuedTakeLine = null;
+        } catch (Exception e) {
+            StartBuildMod.LOGGER.error("[StartBuild] queue paused; failed line retained: {}", queuedTakeLine, e);
+        }
+    }
+
+    /** Restore the consumed search head in order; an existing held queue is never overwritten. */
+    static void holdFailedQueuedTake(Path queue, Path hold, String current) throws java.io.IOException {
+        if (!Files.exists(queue) && current == null) return;
+        List<String> remaining = Files.exists(queue) ? new ArrayList<>(Files.readAllLines(queue)) : new ArrayList<>();
+        if (current != null) remaining.add(0, current);
+        Files.write(queue, remaining);
+        if (!Files.exists(hold)) Files.move(queue, hold);
     }
 
     // ------------------------------------------------------------------ earlier builds

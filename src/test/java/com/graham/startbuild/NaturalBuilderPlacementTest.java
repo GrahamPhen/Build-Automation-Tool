@@ -179,6 +179,26 @@ class NaturalBuilderPlacementTest {
         assertEquals(1, ((byte[]) status.get(builder))[0], "fire must never become permanent no-item status4");
     }
 
+    @Test void flightPlanningReservesFutureAndExistingPortalsInsteadOfTreatingThemAsAir() throws Exception {
+        var f = sun.misc.Unsafe.class.getDeclaredField("theUnsafe");
+        f.setAccessible(true);
+        var level = (PlacementLevel) ((sun.misc.Unsafe) f.get(null)).allocateInstance(PlacementLevel.class);
+        level.states = new HashMap<>();
+        var model = SchematicModel.blank(1, 1, 1);
+        model.states[0] = Blocks.NETHER_PORTAL.defaultBlockState();
+        var builder = new NaturalBuilder(model, BlockPos.ZERO, 0);
+        assertTrue(builder.portalHazard(level, new AABB(0, 0, 0, 1, 1.8, 1)), "reserve it while the world is still air");
+        assertFalse(builder.portalHazard(level, new AABB(0, 0, 1.2, 1, 1.8, 2.2)), "a real click from beside the plane remains possible");
+        var external = new BlockPos(3, 0, 0);
+        level.states.put(external, Blocks.NETHER_PORTAL.defaultBlockState());
+        var free = NaturalBuilder.class.getDeclaredMethod("free", ClientLevel.class, BlockPos.class);
+        free.setAccessible(true);
+        assertFalse((boolean) free.invoke(builder, level, external), "production A* rejects an existing world portal outside the schematic");
+        var dig = NaturalBuilder.class.getDeclaredMethod("diggable", ClientLevel.class, BlockPos.class);
+        dig.setAccessible(true);
+        assertFalse((boolean) dig.invoke(builder, level, BlockPos.ZERO), "the digging fallback cannot route through a future portal either");
+    }
+
     @Test void bannersUseActualPoseValidationWithoutWaivingFinalRotation() {
         var wanted = net.minecraft.core.registries.BuiltInRegistries.BLOCK
                 .getValue(net.minecraft.resources.Identifier.withDefaultNamespace("white_banner"))
