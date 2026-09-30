@@ -120,6 +120,8 @@ final class NaturalBuilder {
     /** Temporary blocks that could not be reached: not tried again before this tick. */
     private final Map<BlockPos, Long> scaffoldRetryAt = new HashMap<>();
     private final Map<BlockPos, Long> digRetryAt = new HashMap<>();
+    private final Map<Integer, Integer> accessPlans = new HashMap<>();
+    private int accessTarget = -1;
     /** Set by fly() when the player is blocked mid-route: MOVE plans the route again. */
     private boolean replan;
     private int scaffoldCleanups;
@@ -401,6 +403,17 @@ final class NaturalBuilder {
     // ================================================================== choosing work
 
     private Action nextAction(Minecraft mc, LocalPlayer player, ClientLevel level) {
+        // Finish the cell whose stage-owned neighbours were opened before rebuilding the access hole.
+        if (accessTarget >= 0) {
+            Action fill = new Action(Kind.PLACE, worldOf(accessTarget), model.states[accessTarget], false);
+            if (status[accessTarget] == 2) accessTarget = -1;
+            else if (prepare(mc, player, level, fill)) return fill;
+            else {
+                Action open = openAccess(mc, player, level, accessTarget);
+                if (open != null) return open;
+                accessTarget = -1;
+            }
+        }
         // 1. Finish any planned sequence (scaffold -> real block -> remove scaffold).
         while (!queue.isEmpty()) {
             Action a = queue.pollFirst();
@@ -608,7 +621,7 @@ final class NaturalBuilder {
                         continue;
                     }
                     // The first half stays in place while its partner is built; vanilla then joins them.
-                    if (waitingForChestPartner(have, want)) continue;
+                    if (waitingForChestPartner(have, want) && !hasSingleChestPartner(level, p, want)) continue;
                     if (isWater(want) && !waterContained(x, y, z)) continue;
                     boolean special = specialUse(have, want) != null;
                     boolean needsBreak = !special && !have.isAir() && !have.canBeReplaced();
@@ -653,6 +666,12 @@ final class NaturalBuilder {
             if (prepare(mc, player, level, a)) {
                 return a;
             }
+            // A full block surrounded after its neighbours were built needs a real access opening.
+            if (a.kind == Kind.PLACE && model.states[i].isCollisionShapeFullBlock(level, p)
+                    && java.util.Arrays.stream(Direction.values()).allMatch(d -> !level.getBlockState(p.relative(d)).canBeReplaced())) {
+                Action open = openAccess(mc, player, level, i);
+                if (open != null) { accessTarget = i; return open; }
+            }
             // Could not be planned from here: skip it for 5 s instead of re-solving it every tick.
             retryAfter[i] = (int) ticks + 100;
         }
@@ -684,7 +703,7 @@ final class NaturalBuilder {
             BlockState want = model.states[i];
             // Slabs and stairs also take a temporary block: a top slab or upside-down stair with nothing
             // beside it can only be clicked against the upper half of a neighbour (the test course's were skipped).
-            boolean shaped = want.getBlock() instanceof SlabBlock || want.getBlock() instanceof StairBlock;
+            boolean shaped = canUseTemporaryFace(want);
             if (want.getBlock() instanceof FallingBlock || (!want.isCollisionShapeFullBlock(level, t) && !shaped)
                     || isWater(want)) {
                 continue;       // needs real ground/support (sand, plants, water) - a temporary block cannot help
@@ -694,6 +713,7 @@ final class NaturalBuilder {
                 continue;
             }
             for (Direction d : preferredDirections(want)) {
+                if (!temporaryFaceFits(d.getOpposite(), want)) continue;
                 BlockPos n = t.relative(d);
                 if (!freeForScaffold(level, n)) continue;
                 List<BlockPos> chain = chainTo(level, n, t);
@@ -784,10 +804,51 @@ final class NaturalBuilder {
     private Item scaffoldItemFor(BlockState want) {
         Item item = want.getBlock().asItem();
         if (item == Items.AIR || want.getBlock() instanceof FallingBlock
-                || want.getBlock() instanceof SlabBlock || want.getBlock() instanceof StairBlock) {
+                || want.getBlock() instanceof SlabBlock || want.getBlock() instanceof StairBlock
+                || want.getBlock() instanceof TrapDoorBlock) {
             return Blocks.COBBLESTONE.asItem();
         }
         return item;
+    }
+
+    static boolean canUseTemporaryFace(BlockState want) {
+        return want.getBlock() instanceof SlabBlock || want.getBlock() instanceof StairBlock
+                || want.getBlock() instanceof TrapDoorBlock;
+    }
+
+    static boolean temporaryFaceFits(Direction face, BlockState want) {
+        if (!axisOk(face, want)) return false;
+        if (want.getBlock() instanceof StairBlock || want.getBlock() instanceof TrapDoorBlock) {
+            var half = want.getValue(BlockStateProperties.HALF);
+            if (face == Direction.UP && half == net.minecraft.world.level.block.state.properties.Half.TOP) return false;
+            if (face == Direction.DOWN && half == net.minecraft.world.level.block.state.properties.Half.BOTTOM) return false;
+        }
+        if (want.getBlock() instanceof TrapDoorBlock && face.getAxis().isHorizontal()) {
+            return face == want.getValue(BlockStateProperties.HORIZONTAL_FACING);
+        }
+        return true;
+    }
+
+    private Action openAccess(Minecraft mc, LocalPlayer player, ClientLevel level, int i) {
+        if (accessPlans.getOrDefault(i, 0) >= 4) return null;
+        BlockPos target = worldOf(i);
+        // Only this stage's placed blocks or its temporary supports can be opened, and verify() parks
+        // every opened model cell for restoration. A short second opening can provide head clearance.
+        for (int distance = 1; distance <= 2; distance++) {
+            for (Direction direction : facesByPreference(level, player, target)) {
+                BlockPos pos = target.relative(direction, distance);
+                int n = indexOf(pos);
+                if (!scaffolds.contains(pos) && (n < 0 || status[n] != 2)) continue;
+                if (!diggable(level, pos)) continue;
+                Action open = new Action(Kind.BREAK, pos, null, scaffolds.contains(pos));
+                open.dig = true;
+                if (!prepare(mc, player, level, open)) continue;
+                accessPlans.merge(i, 1, Integer::sum);
+                StartBuildMod.LOGGER.info("[StartBuild] opening {} temporarily to reach {}", pos, target);
+                return open;
+            }
+        }
+        return null;
     }
 
     // ================================================================== planning one action
@@ -864,8 +925,12 @@ final class NaturalBuilder {
             a.item = item;
         }
         List<Direction> dirs = (a.want == null) ? List.of(Direction.values()) : preferredDirections(a.want);
+        BlockPos chestPartner = a.want != null && a.want.getBlock() instanceof ChestBlock
+                && a.want.getValue(ChestBlock.TYPE) != ChestType.SINGLE && hasSingleChestPartner(level, a.target, a.want)
+                ? chestPartner(a.target, a.want) : null;
         for (Direction d : dirs) {
             BlockPos n = a.target.relative(d);
+            if (chestPartner != null && !n.equals(chestPartner)) continue;
             BlockState ns = level.getBlockState(n);
             if (!isClickable(ns)) continue;
             if (!placementSneaks(a.want, ns) && requiresSneak(ns)) continue;
@@ -1063,12 +1128,18 @@ final class NaturalBuilder {
     private boolean simulateRobust(LocalPlayer player, ClientLevel level, BlockPos target, BlockPos against,
                                    Direction face, Vec3 hit, Vec3 stand, BlockState want) {
         if (!simulate(player, level, target, against, face, hit, stand, want)) return false;
-        if (!facesLook(want)) return true;
+        if (!needsFacingMargin(want)) return true;
         double[][] offs = {{0.3, 0}, {-0.3, 0}, {0, 0.3}, {0, -0.3}};
         for (double[] o : offs) {
             if (!simulate(player, level, target, against, face, hit, stand.add(o[0], 0, o[1]), want)) return false;
         }
         return true;
+    }
+
+    static boolean needsFacingMargin(BlockState want) {
+        // A 16-way banner can require a close stand where +/-0.3 changes the segment. AIM rechecks the
+        // actual position immediately before clicking; the broad cardinal-facing margin is excessive.
+        return facesLook(want) && !want.hasProperty(BlockStateProperties.ROTATION_16);
     }
 
     /** Every spot around `target` from which `hit` can be clicked, nearest to the player first. */
@@ -1187,6 +1258,7 @@ final class NaturalBuilder {
         if (matches(have, a.want)) {
             placed++;
             markDone(i);
+            if (i == accessTarget) accessTarget = -1;
             if (i >= 0) serverChecks.addLast(new long[]{i, ticks + 20});
             highestBuiltY = Math.max(highestBuiltY, a.target.getY());
             progress();
@@ -1728,6 +1800,18 @@ final class NaturalBuilder {
         return want.getBlock() instanceof ChestBlock && have.getBlock() == want.getBlock()
                 && want.getValue(ChestBlock.TYPE) != ChestType.SINGLE && have.getValue(ChestBlock.TYPE) == ChestType.SINGLE
                 && matches(have, placeState(want));
+    }
+
+    static BlockPos chestPartner(BlockPos pos, BlockState want) {
+        Direction facing = want.getValue(ChestBlock.FACING);
+        return pos.relative(want.getValue(ChestBlock.TYPE) == ChestType.LEFT ? facing.getClockWise() : facing.getCounterClockWise());
+    }
+
+    static boolean hasSingleChestPartner(ClientLevel level, BlockPos pos, BlockState want) {
+        if (!(want.getBlock() instanceof ChestBlock) || want.getValue(ChestBlock.TYPE) == ChestType.SINGLE) return false;
+        BlockState partner = level.getBlockState(chestPartner(pos, want));
+        return partner.getBlock() == want.getBlock() && partner.getValue(ChestBlock.TYPE) == ChestType.SINGLE
+                && partner.getValue(ChestBlock.FACING) == want.getValue(ChestBlock.FACING);
     }
 
     static int nextBookSlot(BlockState have, BlockState want) {
