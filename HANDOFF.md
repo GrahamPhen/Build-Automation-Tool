@@ -1,12 +1,39 @@
 # HANDOFF — Build Automation Tool (StartBuild 2.17.x)
 
-> Read this first. Last updated **2026-09-30**, mod version **2.17.19**, branch `natural-builder-2.0`
+> Read this first. Last updated **2026-09-30**, mod version **2.17.22**, branch `natural-builder-2.0`
 > (pushed to `origin` = https://github.com/GrahamPhen/Build-Automation-Tool). The Baritone-era docs (1.x) are
 > archived in `docs/`; don't follow them. `CLAUDE.md` holds the short rules; this file holds everything else.
 
 ---
 
-## 0. Where things stand right now (2026-09-30 10:05 Denver; paused)
+## 0. Where things stand right now (2026-09-30 10:38 Denver; resumed)
+
+- **Fisherman's Refuge is recording on installed 2.17.22; 40 authorized builds remain queued.**
+  Graham authorized returning through the portal or teleporting; the recording character returned to
+  Overworld at 10:16:42. Current game is 26.2 PID19916/start10:34:15.720007 (CIM precision).
+  Fisherman began recording at10:35:12; five tree stages finished with197 real breaks, digging began
+  at10:35:48, and no errors/abort appeared through10:36:05. This passed the prior startup failure.
+  The exact40-entry suffix has Fountain first and Briarwood exactly once LAST. No maintenance hold.
+  Seven accepted; earlier Farmer and Dragon's Gate2.17.20 retry remain preserved/unaccepted for review.
+- **Sparse terrain startup crash fixed, reviewed, tested and pushed within its incident budget.**
+  Version2.17.21's portal guard dereferenced unspecified terrain cells. Fisherman and Fountain aborted
+  empty on startup; both queue entries were restored once in original order before resuming.
+  Commit179ab29/version2.17.22 checks for null while retaining live-portal avoidance. The regression
+  reproduces sparse digging/filling parts; red test reproduced the crash, full green build35tests passed.
+  Push10:32:38.1901360 beat the10:37:33 deadline (incident start10:22:33). All91tracked files, three
+  launchers and jar mirrored. Installed SHA256:
+  `D1D0737F5F182EF89923BC2A992BA1DAF6D0ADBBDDBBB093FA9FC69F00319362`.
+- **Monitoring ACTIVE; one hidden bounded watcher.** Watcher1720/start10:35:23.398789 waits120minutes;
+  direct launcher19936/start10:34:13.602078 completed/exited. The normal restart helper cannot recognize
+  aborted/no-Done idle state, so this deployment used verified-idle26.2 closure and the existing launcher
+  after closure. No pending restart helper. Runtime holds exact queue/hash/cursor/output paths and failed
+  IDs: `build/queue-start-20260929/runtime-state.json`; evidence: `resume-2.17.21/` beneath that folder.
+  Verify live identities on the next heartbeat; do not reread/retest completed fixes. Continue healthy
+  builds back to back, accept visibly good results, and preserve the standing15-minute incident limit.
+
+### Earlier milestones — historical; current state is above
+
+The following snapshot was the10:05 pause, superseded by Graham's recovery instructions and the resume above.
 
 - **7 accepted takes; Farmer and Dragon's Gate retry remain unaccepted; game/queue/heartbeat paused.**
   Both Enchanting Tower versions are accepted with minor decorative exceptions. Farmer Done09:40:13
