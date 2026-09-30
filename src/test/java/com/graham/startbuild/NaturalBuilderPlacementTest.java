@@ -199,6 +199,26 @@ class NaturalBuilderPlacementTest {
         assertFalse((boolean) dig.invoke(builder, level, BlockPos.ZERO), "the digging fallback cannot route through a future portal either");
     }
 
+    @Test void sparseTerraformStagesLeaveUnspecifiedCellsTraversableWhileAvoidingLivePortals() throws Exception {
+        var f = sun.misc.Unsafe.class.getDeclaredField("theUnsafe");
+        f.setAccessible(true);
+        var level = (PlacementLevel) ((sun.misc.Unsafe) f.get(null)).allocateInstance(PlacementLevel.class);
+        level.states = new HashMap<>();
+        for (boolean clearing : new boolean[]{true, false}) {
+            var terrain = SchematicModel.blank(3, 2, 3);
+            terrain.states[0] = clearing ? Blocks.AIR.defaultBlockState() : Blocks.DIRT.defaultBlockState();
+            assertNull(terrain.states[terrain.index(2, 0, 2)], "Terraformer leaves unused cells null");
+            var part = new Terraformer.Part(clearing ? "terraforming: digging" : "terraforming: filling",
+                    terrain, BlockPos.ZERO, clearing);
+            var builder = new NaturalBuilder(part.model(), part.origin(), 0, part.clearing());
+            var body = new AABB(2, 0, 2, 3, 1.8, 3);
+            level.states.clear();
+            assertFalse(builder.portalHazard(level, body), "ordinary sparse terrain must not throw or become blocked");
+            level.states.put(new BlockPos(2, 0, 2), Blocks.NETHER_PORTAL.defaultBlockState());
+            assertTrue(builder.portalHazard(level, body), "null schematic cells still avoid a live world portal");
+        }
+    }
+
     @Test void bannersUseActualPoseValidationWithoutWaivingFinalRotation() {
         var wanted = net.minecraft.core.registries.BuiltInRegistries.BLOCK
                 .getValue(net.minecraft.resources.Identifier.withDefaultNamespace("white_banner"))

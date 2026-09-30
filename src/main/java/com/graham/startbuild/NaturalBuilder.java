@@ -1648,7 +1648,7 @@ final class NaturalBuilder {
                 for (int z = Mth.floor(body.minZ); z < Math.ceil(body.maxZ); z++) {
                     BlockPos p = new BlockPos(x, y, z);
                     int i = indexOf(p);
-                    if ((i >= 0 && model.states[i].is(Blocks.NETHER_PORTAL))
+                    if ((i >= 0 && model.states[i] != null && model.states[i].is(Blocks.NETHER_PORTAL))
                             || level.getBlockState(p).is(Blocks.NETHER_PORTAL)) return true;
                 }
             }
