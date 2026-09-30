@@ -8,23 +8,30 @@
 
 ## 0. Where things stand right now (2026-09-29 evening)
 
-- **The build queue is ON HOLD** on purpose: `config\startbuild-queue.hold` (not `.txt`), so nothing starts.
-  It holds: `green_dragon plains`, `Sugar_Skull_60 plains`, `Jigglypuff plains`, `sylveon plains`,
-  `house_enchanted plains`, `Grim_Reaper snowy`. The last two are REBUILDS (their first takes had visible
-  gaps; those replays were sent to the Recycle Bin). green_dragon was stopped during tree-felling (nothing
-  built, recording discarded) — it was on a 315-tree taiga site, so it was re-queued as plains.
-- The 26.2 recording game (Prism instance `BuildRecording`) is open and idle in the world.
+- **The build queue is ACTIVE**, resumed with the owner's authorization on 2026-09-29 at 20:24.
+  `green_dragon plains` is recording in the 26.2 `BuildRecording` instance at `-17422, 68, -24887`;
+  tree-felling advanced through two trees to tree 3/123. Its earlier 315-tree taiga take was stopped
+  before building and discarded. `config\startbuild-queue.txt` has **55 pending entries**: the original
+  `Sugar_Skull_60 plains`, `Jigglypuff plains`, `sylveon plains`, `house_enchanted plains`, `Grim_Reaper snowy`,
+  followed by 50 Sarox imports in mapping order with `plains`. The last two original entries are REBUILDS
+  (their first takes had visible gaps; those replays were sent to the Recycle Bin).
 - **SaroxBuilds import complete:** all 55 requested `.litematic` files are in `<inst>\schematics\` with
   command-safe build IDs; [filename/ID/hash/size mapping](docs/sarox-import-20260929.csv). All 55 fit the
-  ≤ 55k-block / ≤ 144×144 footprint guidance. Target hashes and offline parsing verified; queue unchanged,
-  no builds started and no runtime placement tests performed.
+  ≤ 55k-block / ≤ 144×144 footprint guidance. Target hashes and offline parsing verified; 50 now queued,
+  excluding only standalone `Pine 1.litematic` through `Pine 5.litematic`; `Pinecrest Watchtower` is included.
+  No runtime placement tests of these imports have completed yet.
+- Queue audit and monitoring state: `build\queue-start-20260929\` preserves the original held queue,
+  reviewed 56-entry proposal and `runtime-state.json` (game/watcher PIDs, logs and lifecycle cursor).
+  One hidden `tools\ops\watch-take.ps1 -Minutes 600` watches the active take; heartbeat
+  `watch-startbuild-queue` checks this chat every 15 minutes and handles completed takes or actual issues.
+  Startup required a process-local WindowsPowerShell module path; no machine environment or mod changed.
 - **Shorts:** 20 builds were edited (50 videos) into `C:\Users\Graham\Desktop\Shorts\`. **15 finished takes
   still need editing** (list in §6.4). The owner said: **don't edit more yet** — they are reviewing the
   existing 50 first and will say which cut/style they like.
 - **Outro:** an animated MineSurvive outro was built and approved in its 2nd design, with the badge text
   changed to "CHECK OUT MY SERVER" (§6.5). Applied to **all 50 existing Shorts across 20 builds** in each
   build's `with-outro\` folder; all outputs validated and all originals preserved. The 15 unedited takes
-  and the held build queue remain pending.
+  remain pending for the owner's editing feedback; build recording has resumed separately.
 - Owner preference going forward: **fewer Pokémon builds** unless they ask; favour Halloween, houses,
   fantasy, dragons, vehicles, other statues.
 
@@ -104,7 +111,7 @@ Owner's non-negotiables (also in `CLAUDE.md`):
 - `<inst>\config\startbuild-queue.txt`: one `name wish` per line (e.g. `ghost_cat_80 taiga`). A line is popped
   30 s after a take ends, only while the mod is idle. `#` lines are ignored.
 - Hold the queue = rename it to `startbuild-queue.hold` (nothing starts). Resume = rename back.
-  **Right now it is held** (§0).
+  **Right now it is active** (§0); consult the live queue/log and runtime state for current progress.
 - Each take: site search (up to 16 areas, cheapest site first, skipping sites whose terraforming exceeds
   1.5× the build or 4000 blocks, deep water fill, flood risk, or within 450 blocks of a past build) →
   recording starts → trees → dig → fill → build → 30 s tail → `Done: ... Recording saved.`
@@ -281,7 +288,7 @@ rayquaza1; 2 for the rest; spooky music for skull+mask_80, coffin_80, bat_house_
 - Verification: all 50 outputs have 1080×1920 video and audio, add 4.600–4.633 s, and total 2,823,507,221 bytes.
   All 50 original SHA256 hashes, sizes and modification timestamps are unchanged; three full sample decodes
   passed. Representative late-outro frames show the approved badge and connection cards without clipping.
-  No additional takes were rendered and the build queue remains held.
+  No additional takes were rendered during the outro batch; recording resumed afterward (§0).
 - Server details come from the MineSurvive docs (`docs\INFRASTRUCTURE.md`, handoffs): Java `play.minesurvive.com`,
   Bedrock `bedrock.minesurvive.com:19132` (Geyser), Discord `discord.gg/minesurvive`.
 
