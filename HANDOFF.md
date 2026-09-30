@@ -32,11 +32,15 @@
   The reviewed **2.17.17** fix uses vanilla item placement simulation, selects compatible temporary
   faces for stairs/trapdoors, retries single chest partners, and breaks/restores stage-owned blocks to
   reach enclosed cells. Actual aiming and hand placement are retained. `gradlew build` passed all
-  **24 tests**, including actual Minecraft placement reproductions. The game is idle; installation
-  and another fresh retry are next. Runtime correctness of 2.17.17 is **unverified**.
+  **24 tests**, including actual Minecraft placement reproductions. The approved jar is installed:
+  SHA256 `FC12361975625CFAEC4402D800B5686F715C13AF1A1D92616B0311F9C247C5B3`.
+  Another fresh retry started recording at **22:10:16**, origin **`-17296, 67, -27481`**, in 26.2 PID
+  **33604**. Terraforming finished with zero cells left; construction started at 22:12:25 and reached
+  **262 placed, 2 broken, 3121 left** at 22:13:25. Early barrel-facing and button retries are logged;
+  runtime completion/state/world correctness of 2.17.17 remains **unverified**.
   The held 49-entry queue retains its original hash and order; no active queue exists.
   `config\startbuild-queue.hold` has **49 pending entries**, exactly the remaining Sarox imports in mapping
-  order, all with `plains`; retry the first new build after the next reviewed fix. Hold the other
+  order, all with `plains`; the first new build is now retrying at the fresh site above. Hold the other
   49 during that retry, then restore their exact order only after the saved world and mod's final state
   mismatch count are verified. This is a maintenance validation hold, not a user pause.
   The old six (`green_dragon`, `Sugar_Skull_60`, `Jigglypuff`, `sylveon`, `house_enchanted`, `Grim_Reaper`)
@@ -51,14 +55,15 @@
 - Queue audit and monitoring state: `build\queue-start-20260929\` preserves the original held queue,
   reviewed 56-entry proposal and `runtime-state.json` (game/watcher PIDs, logs and lifecycle cursor).
   `switch-new50-20260929\` preserves the 55-entry queue before the correction and stop/start evidence.
-  Both Aether watchers (PIDs 36296 and 40108) exited after their takes. No watcher is needed while idle;
-  arm exactly one bounded watcher for the next retry. Watcher logs and failed-take evidence are in
-  `build\aether-fix-20260929\restart\`. Heartbeat
+  Both earlier Aether watchers (PIDs 36296 and 40108) exited after their takes. Exactly one hidden
+  bounded watcher (PID **34484**, started 22:10:47, `-Minutes 120`) watches 2.17.17. Current launch,
+  watcher, held-queue and two-failed-take ledger evidence is in `build\aether-fix-20260929\retry-2.17.17\`;
+  prior evidence remains in `build\aether-fix-20260929\restart\`. Heartbeat
   `watch-startbuild-queue` checks this chat every 15 minutes and handles completed takes or actual issues.
   Startup required a process-local WindowsPowerShell module path; no machine environment or mod changed.
-- **Next:** install the reviewed 2.17.17 release between takes and retry Aether at a fresh site. At its end inspect
+- **Next:** wait for the active 2.17.17 retry to finish and the world/replay to save. At its end inspect
   `take-report`, the mod's final state mismatch count, `verify-build` and `missing-visible` against the
-  fresh saved world. Confirm the remaining defects and temporary supports have resolved. Only
+  fresh saved world at `-17296, 67, -27481`. Confirm the remaining defects and temporary supports have resolved. Only
   then restore the exact held 49 entries to `startbuild-queue.txt`; expected held SHA256 is
   `EC1D251620769FA89ADD40B0083D3009D1C80ACD70D699A58073120BE4071733`. Otherwise keep the validation
   hold and diagnose; neither failed Aether recording is a successful take.
