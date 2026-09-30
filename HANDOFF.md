@@ -6,28 +6,34 @@
 
 ---
 
-## 0. Where things stand right now (2026-09-30 12:19 Denver; finish current, then edit)
+## 0. Where things stand right now (2026-09-30 13:25 Denver; editing)
 
-- **Fountain is the final authorized take before editing.** Graham instructed: "once the current build
-  finishes, lets stop building and edit all the videos that need to be edited". Game 26.2 PID 19916/start
-  10:34:15.720007 CIM precision is unchanged; Fountain recorded from 11:08:37 on 2.17.22. At 12:19:36,
-  filling had 7525 placed/1601 left and continued progressing. Let it finish naturally; no stop file,
-  game closure, focus change or rendering while it records. Sole existing bounded watcher is
-  PID 29460/start 11:14:42.036950. Root updated the existing 15-minute heartbeat to finish, then edit.
+- **Building has stopped; Fountain is saved but excluded as incomplete.** Its repeated NPEs ended with
+  Done at 13:01:20: 9845 placed/2687 not matching; preserved replay `2026-09-30T13_01_19.zip`, recording ID
+  `8e3e4330-7f86-44e0-8d7b-da5c05b58e99`. Astra excluded it and deferred the build-only defect;
+  no investigation, repair or retry is authorized by the current editing task. Recording is inactive.
 - **All 39 remaining builds are preserved and held; no automatic building resume.** At 12:19:57 the
   exact original 39-entry suffix was moved byte-for-byte to `<inst>\config\startbuild-queue.hold`:
   SHA256 `EB2A44147EC83CE3A62800D6D0FC50C2D80899C53B58F72728E691F040650C78`, Frostwood first,
   Briarwood once last. Active queue and stop file were absent; pending restart/launch helpers were
   verified absent before the move. Keep this hold through rendering and launcher use. A future build
   queue release requires new user authorization.
-- **Editing backlog is concrete; execution waits for current Done.** Manifest:
+- **Editing backlog is concrete; first edits are active.** Manifest:
   `build/queue-start-20260929/finish-then-edit/backlog-manifest.json`. It contains 23 approved usable takes
   needing 51 cuts: 22 have prepared job inputs/49 cuts; Mimikyu's 2 cuts await exact stage timing recovery.
   Existing 50 originals and 50 animated-outro copies are preserved. Farmer and Dragon retry await quality
-  judgment; Fountain awaits completion/usability review. Failed/empty/interrupted and missing earlier
-  takes remain explicitly listed. No rendering or publishing started. See §6.6 for commands and gates.
+  judgment. Failed/empty/interrupted and missing earlier takes remain explicitly listed.
+- **First edits are rendering: Bulbasaur B cinematic + C orbit, with royalty/heat_waves music, then the
+  approved animated MineSurvive outro.** One hidden helper PID41536/start13:23:46.527741 launched the
+  existing renderer after verified idle/queue/source/music/collision checks. New 26.2 game PID 1292
+  opened the replay 13:24:41 and began 38-second cinematic export 13:24:59. Module-path launch failure
+  at 13:21:52 was resolved process-locally on this single retry; attempt 1 evidence is preserved.
+  Helper/result/stdout/stderr paths are in runtime and `finish-then-edit/first-render-helper.json`.
+  Phase is `EDITING_FIRST_RENDER_RUNNING_PENDING_AV_REVIEW`; ffprobe plus actual visual/listening review,
+  completed construction/end framing and the approved outro are required before full batch/completion.
+  The existing 15-minute heartbeat is now editing-only. See §6.6; no publishing.
 
-### Previous resume milestone — historical; the finish-current instruction above controls execution
+### Previous resume milestone — historical; the editing-only instruction above controls execution
 
 - **Fisherman's Refuge is recording on installed 2.17.22; 40 authorized builds remain queued.**
   Graham authorized returning through the portal or teleporting; the recording character returned to
@@ -476,11 +482,12 @@ the earlier feedback wait. The approved styles, music guidance and 2–3 cut pla
 ### 6.6 September 30 editing backlog and execution gate
 - Job/source inventory: `build\queue-start-20260929\finish-then-edit\backlog-manifest.json` (runtime also
   stores its absolute path). Includes replay UUIDs/recording IDs when available, origins, schematic
-  extents, lifecycle evidence, prepared Common/Jobs and exact missing output/outro paths. All 23 replay
-  metadata files were readable; no new take/output was opened or rendered. The 22 prepared takes comprise
+  extents, lifecycle evidence, prepared Common/Jobs and exact missing output/outro paths. During the
+  preparation snapshot, all 23 replay metadata files were readable and no new output was opened/rendered.
+  The 22 prepared takes comprise
   14 former waiting takes and 8 accepted Sarox takes. Five agreed larger waiting takes retain 3 cuts;
   all other approved takes have B cinematic + C orbit with different songs and the accepted animated outro.
-- Before any render: verify Fountain's natural Done/readable replay and no active recording; preserve
+- Before any render: verify the previous take has ended and no recording is active; preserve
   the exact held 39 hash/absence of active queue; verify no autorun flag or pending restart helper.
   `render-take.ps1` closes the game immediately and uses the existing launcher, so these gates are mandatory.
   Never select failed, empty, interrupted or unaccepted takes from the manifest by default.
@@ -496,8 +503,8 @@ the earlier feedback wait. The approved styles, music guidance and 2–3 cut pla
   earlier than its wall-clock estimate. Check construction completion and end framing in the first actual
   output before running the full batch. This is preparation, not an audiovisual correctness claim. Mimikyu has valid metadata
   but missing local stage/Done lines; recover its precise long tree-felling transition after recording ends.
-- Pending: Farmer's 19 visible omissions (including 7 closed doors), Dragon retry's dimension change/6 minor
-  omissions, and current Fountain require judgment. Earlier Dragon lacked its portal; both Briarwood
+- Pending: Farmer's 19 visible omissions (including 7 closed doors) and Dragon retry's dimension change/6 minor
+  omissions require judgment; Fountain is excluded as incomplete. Earlier Dragon lacked its portal; both Briarwood
   takes were interrupted; earlier Aether takes failed; 2.17.21 Fisherman/Fountain aborted empty; green_dragon
   had 0 placements/discarded takes; house_enchanted has 618 known roof omissions and its matching replay is
   absent; Grim_Reaper has a historical 1033 visible-missing failure; Sugar_Skull/Jigglypuff/sylveon were site
