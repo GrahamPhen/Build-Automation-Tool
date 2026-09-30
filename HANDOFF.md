@@ -6,26 +6,28 @@
 
 ---
 
-## 0. Where things stand right now (2026-09-30 09:39 Denver)
+## 0. Where things stand right now (2026-09-30 10:05 Denver; paused)
 
-- **6 accepted takes; 2.17.19 installed; reviewed 2.17.20 awaits a normal between-takes install.**
-  Farmer House TIER1 recorded09:31:51 at`-23541,64,-29691`; progress09:38:17 was1211placed/308left,
-  layer10, with no watchdog. Verified26.2 PID17084/start08:50:25.6443198. Enchanting Tower TIER1
-  Done09:20:23 accepted with minor exceptions: fresh1815/1822 correct IDs,7missing,0wrong; only two
-  small pressure plates exposed, four candles/bell hidden. Readable replay`2026-09-30T09_20_22.zip`,
-  ID`785fe666-7e28-4744-b209-12cb752617d4`; evidence`enchant-tier1-092023-*`. The later
-  `enchanting_tower` completion is preserved in the deployment delta; review is deferred to the next
-  heartbeat. Graham's explicit skip/reorder/continue authorization supersedes the old Briarwood-only gate.
-- **Dragon's Gate remains unaccepted; its portal ignition fix is reviewed and pushed.**
-  Done09:11:04/replay`2026-09-30T09_11_03.zip`, ID`807df083-1c2f-4d5b-a29e-39dce22d38cb` preserved.
-  Fresh world772/796 correct IDs; central valid3x8obsidian frame contains21air+3fire instead of portal.
-  Early ignition09:08:12 preceded the top frame; fire then took the permanent no-item fallback.
-  Commit`79b6f4a`/2.17.20 waits for read-only vanilla frame validation, clears fire with real clicks,
-  and uses real flint-and-steel ignition; no portal writes. Astra reviewed; full build30tests passed;
-  push verified09:35:17.3020250, before incident deadline09:38:23.1775523 (start09:23:23.1775523).
-  Coding repair is resolved; installation/retry validation remain pending. All90tracked files,
-  launchers and new jar mirrored; SHA256`50A89F0605184242E30D851CC77878D1BBA58D67B26C59D6A401ECE9E49F678E`.
-  Evidence:`dragon-091104-*`, `portal-{red-test,green-build}.log`, `portalshape-javap.txt`.
+- **7 accepted takes; Farmer and Dragon's Gate retry remain unaccepted; game/queue/heartbeat paused.**
+  Both Enchanting Tower versions are accepted with minor decorative exceptions. Farmer Done09:40:13
+  has1517/1536 correct IDs,19 visible omissions (seven closed doors/two signs hanging/three wall signs),
+  awaiting manager judgment. Dragon retry Done09:46:26 is preserved as`2026-09-30T09_46_25.zip`,
+  ID`75f5d1ab-2eaa-4143-8d63-0f2733f2a2c7`; original Overworld save790/796 correct IDs,6wall/fence
+  omissions,0wrong,**all24portal cells present**. Its recorded dimension change makes it unaccepted.
+  Verified26.2 PID9624/start09:41:28.504013 is idle in Nether;2.17.20 remains installed.
+- **Dimension/queue-loss cause proved; reviewed 2.17.21 pushed before the incident deadline.**
+  Log09:45:49 and saved actor NBT prove Overworld->Nether teleport; subsequent796mismatch verification
+  read the wrong dimension. Portals had empty collision, so movement admitted entry. Plains searches
+  then failed in Nether; consumed queue heads were not restored on site exhaustion. Commit`86efa73`
+  reserves future/live portal cells in stands, paths, escapes and movement; retains real ignition;
+  holds failed searches with their original head/remainder; guards non-Overworld dispatch and reports
+  verification unavailable after dimension change. Astra reviewed, full build34tests passed, push
+  verified10:05:10.8445003 within09:51:06.928–10:06:06.928. **Staged only; no install/restart/resume.**
+  All91tracked files, launchers and jar mirrored; SHA256`8AE055DF5AA54C7CF3D3646730CC00655A7690545F60378381BBC1168AA2517B`.
+  Evidence:`portal-2.17.20/incident-0951-dimension.json`, `dragon-retry-094626-overworld-verify.txt`,
+  `portal-2.17.21-build-final.log`, `portal-2.17.21-level-javap.txt`. Earlier ignition fix`79b6f4a`
+  successfully formed the retry portal; original09:11:04 take/ID`807df083-1c2f-4d5b-a29e-39dce22d38cb`
+  remains preserved/unaccepted. Returning the player to Overworld and deployment await separate guidance.
 - **Windmill and Clock Tower accepted with minor exceptions after manager review.**
   Windmill Done08:49:07 on2.17.18: readable replay `2026-09-30T08_49_06.zip`, recording ID
   `20d1cd74-226b-4cc2-831a-ab9803ad60e5`; fresh world2457/2460 correct IDs,3 missing,0 wrong IDs.
@@ -36,17 +38,13 @@
   Both have zero watchdogs and no leftover supports; no material body loss is indicated. These are
   saved-world/report judgments, with no direct video inspection or defect-free claim. Evidence prefixes:
   `build\queue-start-20260929\windmill-084907-` and `clock-090534-`; IDs accepted once in runtime state.
-- **One installer waits for normal Farmer Done; Dragon's Gate retry is next, Briarwood last.**
-  Hidden helper21020/start09:37:23.6126580 uses`tools/ops/restart-between-takes.ps1`; it closes only
-  verified26.2 after normal Done, installs2.17.20 while closed, and launches the authorized DragonGate retry.
-  Held42 = one DragonGate retry + exact41 original remainder; Briarwood exactly once last. Hold SHA256
-  `C2E22C109890674A5C77381CD19E04C1A11D090BF31484F5966A7AEB6E40A6CF`; byte-preserved original backup
-  `portal-2.17.20/original-remainder.hold`, SHA256`7F78D71D6D991EDA1E0AC03625BB978B4E8ABACA4A9D257A10F6F7F0FC3F4512`.
-  Helper output is under`build\queue-start-20260929\portal-2.17.20\`. Sole hidden120minute watcher11648
-  started09:39:15.4792170; output`watch-0938.{stdout,stderr}.log`; prior watchers42408/22188 ended on Done.
-  Cursor1008lines/175709bytes/write09:38:17.4645991; archive`2026-09-30-2.log.gz` remains consumed805lines.
-  **Stop the verified helper FIRST before any safety-stop file, preserving held42 and recording IDs.**
-  Previous helper13940 completed08:50:27 after installing2.17.19; it remains exited.
+- **Exact41original entries restored/held;11consumed failed searches recovered; Briarwood once last.**
+  No active queue, recording, helper or watcher; stop file preserved. Held SHA256
+  `7F78D71D6D991EDA1E0AC03625BB978B4E8ABACA4A9D257A10F6F7F0FC3F4512` matches the byte-preserved
+  `portal-2.17.20/original-remainder.hold`. Helper21020 completed closed-game2.17.20 installation and
+  exited; current watcher16224 ended (11648 ended earlier). Cursor1449lines/142578bytes/write09:51:57.570; rotated
+  `2026-09-30-3.log.gz` consumed1037lines. Runtime retains all original/retry IDs and incident history.
+  **Any future verified helper must be stopped FIRST before a safety-stop file.** No automatic resume.
 - **Exact stall fix 2.17.19 is reviewed, pushed and installed; Briarwood live validation remains pending.**
   Commit `6ec2ca3`, full build, 29 tests passed. Preserved replay evidence identifies spruce gate
   `(-18932,79,-29830)`: 3351 coordinate occurrences, 1116 air updates and 1677 state13507 updates.
@@ -143,10 +141,10 @@
   command-safe build IDs; [filename/ID/hash/size mapping](docs/sarox-import-20260929.csv). All 55 fit the
   ≤ 55k-block / ≤ 144×144 footprint guidance. Target hashes and offline parsing verified; 50 authorized,
   excluding only standalone `Pine 1.litematic` through `Pine 5.litematic`; `Pinecrest Watchtower` is included.
-  Six Sarox takes are accepted with documented exceptions; the original Briarwood and its2.17.18 retry
-  remain interrupted/unaccepted and preserved. Its authorized next attempt is last in the active queue.
+  Seven Sarox takes are accepted with documented exceptions; the original Briarwood and its2.17.18 retry
+  remain interrupted/unaccepted and preserved. Its authorized next attempt is last in the held queue.
 - Queue audit and monitoring state: `build\queue-start-20260929\runtime-state.json` holds the active
-  game/queue/watcher and rotation-aware lifecycle cursor. The current retry watcher is identified above.
+  game/queue/watcher and rotation-aware lifecycle cursor. No watcher is active while paused; identities remain in runtime.
   Historical watcher PID27428 started22:40:25; previous PID34484 exited normally after Aether Done22:28.
   Resume evidence and watcher output: `build\queue-start-20260929\resume-user-accepted-20260929\`.
   Heartbeat `watch-startbuild-queue` is ACTIVE (confirmed08:49:14), honoring Briarwood last, the maintenance
