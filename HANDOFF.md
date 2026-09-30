@@ -20,8 +20,12 @@
   The first 2.17.15 launch installed the approved jar but crashed at 21:17:23 before entering the world:
   the mixin configuration used the main mod package, which prevented `StartBuildMod` from loading.
   The reviewed **2.17.16** correction isolates the mixin in `com.graham.startbuild.mixin` and passes
-  `gradlew build` with all 22 tests. Runtime placement remains unverified; the 26.2 game is closed and Aether's
-  autorun remains armed. The held 49-entry queue retains its original hash and order.
+  `gradlew build` with all 22 tests. The corrected jar was installed with SHA256
+  `0EC0919C3B4D18C77185ACDC58DD73C410865C75D8512AC3FCCCB5303E3B37A1`; Prism stayed open.
+  The fresh retry started recording at **21:23:52**, origin **`-17044, 64, -28022`**, in 26.2 PID **25548**.
+  Terraforming finished with zero cells left; construction started at 21:24:47 and reached **271 placed**
+  at 21:25:48. The first barrel-facing attempt was retried; final placement/state correctness is still
+  **unverified**. The held 49-entry queue retains its original hash and order; no active queue exists.
   `config\startbuild-queue.hold` has **49 pending entries**, exactly the remaining Sarox imports in mapping
   order, all with `plains`; the first new build will retry at a fresh site after installation. Hold the other
   49 during that retry, then restore their exact order only after the saved world and mod's final state
@@ -38,10 +42,17 @@
 - Queue audit and monitoring state: `build\queue-start-20260929\` preserves the original held queue,
   reviewed 56-entry proposal and `runtime-state.json` (game/watcher PIDs, logs and lifecycle cursor).
   `switch-new50-20260929\` preserves the 55-entry queue before the correction and stop/start evidence.
-  The first Aether watcher (PID 36296) has exited; the 26.2 game is closed after the failed patched launch.
-  A bounded watcher will be started for the patched Aether retry. Heartbeat
+  The first Aether watcher (PID 36296) has exited. Exactly one hidden bounded watcher (PID **40108**,
+  started 21:24:55, `-Minutes 120`) watches the patched retry; its logs and the failed-take ledger are in
+  `build\aether-fix-20260929\restart\`. Heartbeat
   `watch-startbuild-queue` checks this chat every 15 minutes and handles completed takes or actual issues.
   Startup required a process-local WindowsPowerShell module path; no machine environment or mod changed.
+- **After the patched retry ends:** inspect `take-report`, the mod's final `not matching` count (block
+  states), `verify-build` (block IDs), and `missing-visible` at `-17044, 64, -28022` after the world saves.
+  Confirm chest pairing, bookshelves, signs, open/toggled blocks and barrel retries have resolved. Only
+  then restore the exact held 49 entries to `startbuild-queue.txt`; expected held SHA256 is
+  `EC1D251620769FA89ADD40B0083D3009D1C80ACD70D699A58073120BE4071733`. Otherwise keep the validation
+  hold and diagnose; do not mark the old failed recording or the unfinished retry successful.
 - **Shorts:** 20 builds were edited (50 videos) into `C:\Users\Graham\Desktop\Shorts\`. **15 finished takes
   still need editing** (list in §6.4). The owner said: **don't edit more yet** — they are reviewing the
   existing 50 first and will say which cut/style they like.
