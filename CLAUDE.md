@@ -11,6 +11,7 @@ and what is/isn't verified. `docs/` holds the obsolete Baritone-era notes; don't
   hillside down and builds up dips with real clicks, and the ground is terraformed so the pad blends into
   the land (no floating pad, no box cut into a mountain). Never `/fill` terrain.
 - Runs unattended to completion; never saves an empty or stalled take.
+- Accept a visibly good recording; hidden missing/incorrect blocks are acceptable. Do not chase zero mismatches or rebuild for invisible defects; focus on material visible problems, stalls and failed/empty takes.
 - Keep token use low: no screenshots/desktop clicking when a file or log answers the question.
 
 ## Build / install / test (Windows, run from this repo)

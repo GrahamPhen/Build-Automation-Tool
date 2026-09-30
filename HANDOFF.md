@@ -8,65 +8,55 @@
 
 ## 0. Where things stand right now (2026-09-29 evening)
 
-- **The build queue is held for an authorized repair, for ONLY the 50 new Sarox builds.** The owner corrected the batch on
-  2026-09-29: skip the six existing builds and go straight to the 50 new ones. `Aether_Cliff_Outpost_tier_1_
-  plains` started recording at 20:32:38 in the 26.2 `BuildRecording` instance at `-17367, 64, -26308`;
-  it finished at 20:52:29 with 203 reported block mismatches after a repeated escape attempt at a roof slab.
-  The recording `2026-09-29T20_52_28.zip` is preserved and must not be rendered as successful: world
-  verification found 203 missing blocks, including 148 visible from outside. The reviewed **2.17.15** fix
-  handles open/toggled blocks, chest pairing, empty bookshelves and blank wall signs, real placement
-  offsets for attached blocks, barrel facing, and reachable escape breaks. `gradlew build` passed all
-  22 tests; eight bounded restart-script mocks passed. Runtime placement is **not yet verified**.
-  The first 2.17.15 launch installed the approved jar but crashed at 21:17:23 before entering the world:
-  the mixin configuration used the main mod package, which prevented `StartBuildMod` from loading.
-  The reviewed **2.17.16** correction isolates the mixin in `com.graham.startbuild.mixin` and passes
-  `gradlew build` with all 22 tests. The corrected jar was installed with SHA256
-  `0EC0919C3B4D18C77185ACDC58DD73C410865C75D8512AC3FCCCB5303E3B37A1`; Prism stayed open.
-  The fresh retry started recording at **21:23:52**, origin **`-17044, 64, -28022`**, in 26.2 PID **25548**.
-  It finished at **21:39:48** with **38 state mismatches**. Fresh saved-world verification found
-  **3354/3388 correct block IDs, 34 missing, zero wrong IDs; 29 missing visible outside**. Missing blocks:
-  25 spruce trapdoors, 4 spruce stairs, 3 white banners, 1 oak trapdoor and 1 bone block; four present
-  chests have incorrect states. No watchdog or shut-in events occurred. Two temporary supports remain,
-  neither visible outside by the report's test. Replay `2026-09-29T21_39_47.zip` is preserved and also
-  excluded from successful takes. Evidence: `build\aether-fix-20260929\restart\retry-213947-*.txt`.
-  The reviewed **2.17.17** fix uses vanilla item placement simulation, selects compatible temporary
-  faces for stairs/trapdoors, retries single chest partners, and breaks/restores stage-owned blocks to
-  reach enclosed cells. Actual aiming and hand placement are retained. `gradlew build` passed all
-  **24 tests**, including actual Minecraft placement reproductions. The approved jar is installed:
-  SHA256 `FC12361975625CFAEC4402D800B5686F715C13AF1A1D92616B0311F9C247C5B3`.
-  Another fresh retry started recording at **22:10:16**, origin **`-17296, 67, -27481`**, in 26.2 PID
-  **33604**. Terraforming finished with zero cells left; construction started at 22:12:25 and reached
-  **262 placed, 2 broken, 3121 left** at 22:13:25. Early barrel-facing and button retries are logged;
-  runtime completion/state/world correctness of 2.17.17 remains **unverified**.
-  The held 49-entry queue retains its original hash and order; no active queue exists.
-  `config\startbuild-queue.hold` has **49 pending entries**, exactly the remaining Sarox imports in mapping
-  order, all with `plains`; the first new build is now retrying at the fresh site above. Hold the other
-  49 during that retry, then restore their exact order only after the saved world and mod's final state
-  mismatch count are verified. This is a maintenance validation hold, not a user pause.
-  The old six (`green_dragon`, `Sugar_Skull_60`, `Jigglypuff`, `sylveon`, `house_enchanted`, `Grim_Reaper`)
-  are skipped and must not be requeued without new authorization. The active `green_dragon` take was
-  stopped through the documented stop file at 20:31:14; the mod logged 0 construction blocks placed
-  and discarded the empty construction take automatically. Existing replay/video files were preserved.
+- **The authorized Sarox50 queue is running on 2.17.17: 1 accepted take, the second recording, 48 pending.**
+  Graham accepted `Aether_Cliff_Outpost_tier_1_` on 2026-09-29: "if its only 4 and they are not visible its ok",
+  then clarified that missing OR incorrect blocks are acceptable when the recording looks visibly good.
+  Do not spend time or usage chasing zero mismatches or repairing invisible defects. Focus on material
+  visible problems, stalls and failed/empty takes. There is no fixed hidden-defect count cap. Confirm
+  relevant visibility before accepting exceptions; `missing-visible` tests air cells only, so wrong
+  block/state defects need appropriate visibility evidence. Mod mismatch counts alone are not failure.
+- **Installed repair:** 2.17.17, source `470a446e31dab4e55cd970dd863503f079bf5062`, uses vanilla
+  placement simulation, compatible temporary faces, chest-partner retries and stage-owned access breaks.
+  Real aiming/hand placement is retained. Build passed all 24 tests; committed, pushed and mirrored.
+  Installed jar SHA256: `FC12361975625CFAEC4402D800B5686F715C13AF1A1D92616B0311F9C247C5B3`.
+- **Accepted Aether evidence:** 2.17.17 recorded at `-17296, 67, -27481` from 22:10:16 to 22:28:28;
+  replay `2026-09-29T22_28_27.zip` is preserved, readable (7 entries), **ACCEPTED_BY_USER**, not claimed defect-free.
+  Fresh save: **3384/3388 correct IDs, 4 missing, 0 wrong IDs, 0 missing visible outside**. Three missing
+  spruce trapdoors are at `(-17288..-17286, 71, -27462)`; one andesite at `(-17283, 83, -27467)` is the
+  exact temporary access opening logged at 22:27:21. The final mod count was 3; this saved-world discrepancy
+  remains documented. One extra bone-block support at `(-17284, 82, -27467)` is also hidden by the report's
+  test. Earlier powered trapdoor retries resolved to the exact saved states. No watchdog events; four
+  shut-in breaks. No further hidden-defect repair is needed for this accepted take.
+  Reports, detailed cells/neighbors, user acceptance and replay ledger:
+  `build\aether-fix-20260929\retry-2.17.17\retry-222827-*` and `failed-takes-ledger.json`.
+  Earlier failed replays `2026-09-29T20_52_28.zip` (2.17.14; 203 missing, 148 visible) and
+  `2026-09-29T21_39_47.zip` (2.17.16; 34 missing, 29 visible, 38 mod mismatches) remain preserved and
+  excluded from successful takes. Their existing evidence remains in the ledger and `restart\`.
+- **Queue resumed at 22:40:25** after verifying the held 49 against the authorized mapping/order and SHA256
+  `EC1D251620769FA89ADD40B0083D3009D1C80ACD70D699A58073120BE4071733`. The exact file was moved to
+  `config\startbuild-queue.txt`. `Aether_Lighthouse_Vol.1 plains` was consumed automatically; **48 pending
+  entries match the exact remainder**, next `Brackenhollow_House_TIER_1_ plains`, last `Zyrel_House_TIER_2_ plains`.
+  The old six are excluded; standalone Pine 1..5 are excluded; Pinecrest Watchtower remains included.
+  `Aether_Lighthouse_Vol.1` started **recording=true at 22:40:52**, origin **`-18024, 64, -26940`**,
+  in the same 26.2 game PID **33604**. It is terraforming (76 blocks to clear, 66 to place, no trees).
+  Load-time unsupported `immersivewind:lantern` / `minecraft:bed` warnings are retained in the log;
+  preparation and recording still started. Judge any material visible result at completion.
+  Maintenance hold is cleared; this is not a user pause. Keep the authorized queue moving.
 - **SaroxBuilds import complete:** all 55 requested `.litematic` files are in `<inst>\schematics\` with
   command-safe build IDs; [filename/ID/hash/size mapping](docs/sarox-import-20260929.csv). All 55 fit the
-  ≤ 55k-block / ≤ 144×144 footprint guidance. Target hashes and offline parsing verified; 50 now queued,
+  ≤ 55k-block / ≤ 144×144 footprint guidance. Target hashes and offline parsing verified; 50 authorized,
   excluding only standalone `Pine 1.litematic` through `Pine 5.litematic`; `Pinecrest Watchtower` is included.
-  No Sarox build has passed runtime verification yet.
-- Queue audit and monitoring state: `build\queue-start-20260929\` preserves the original held queue,
-  reviewed 56-entry proposal and `runtime-state.json` (game/watcher PIDs, logs and lifecycle cursor).
-  `switch-new50-20260929\` preserves the 55-entry queue before the correction and stop/start evidence.
-  Both earlier Aether watchers (PIDs 36296 and 40108) exited after their takes. Exactly one hidden
-  bounded watcher (PID **34484**, started 22:10:47, `-Minutes 120`) watches 2.17.17. Current launch,
-  watcher, held-queue and two-failed-take ledger evidence is in `build\aether-fix-20260929\retry-2.17.17\`;
-  prior evidence remains in `build\aether-fix-20260929\restart\`. Heartbeat
-  `watch-startbuild-queue` checks this chat every 15 minutes and handles completed takes or actual issues.
-  Startup required a process-local WindowsPowerShell module path; no machine environment or mod changed.
-- **Next:** wait for the active 2.17.17 retry to finish and the world/replay to save. At its end inspect
-  `take-report`, the mod's final state mismatch count, `verify-build` and `missing-visible` against the
-  fresh saved world at `-17296, 67, -27481`. Confirm the remaining defects and temporary supports have resolved. Only
-  then restore the exact held 49 entries to `startbuild-queue.txt`; expected held SHA256 is
-  `EC1D251620769FA89ADD40B0083D3009D1C80ACD70D699A58073120BE4071733`. Otherwise keep the validation
-  hold and diagnose; neither failed Aether recording is a successful take.
+  One Sarox take is accepted by the user with documented hidden residuals; the second is recording.
+- Queue audit and monitoring state: `build\queue-start-20260929\runtime-state.json` holds the active
+  game/queue/watcher and rotation-aware lifecycle cursor. Exactly one hidden bounded watcher, PID **27428**,
+  started **22:40:25**, `-Minutes 120`; previous watcher **34484** exited normally after Aether Done at 22:28.
+  Resume evidence and watcher output: `build\queue-start-20260929\resume-user-accepted-20260929\`.
+  Heartbeat `watch-startbuild-queue` checks every 15 minutes using the visibly-good acceptance criterion.
+  The watcher uses a process-local WindowsPowerShell module path; no machine environment/mod changed.
+- **Next:** monitor the active Lighthouse recording with the existing watcher. On completion inspect the
+  fresh world, replay, counts and relevant visibility; accept visibly good takes despite verified hidden
+  residuals. Only material visible problems, stalls, failed/empty takes or a user pause justify stopping
+  or repairing. Preserve recordings and queue order; do not render more Shorts without new authorization.
 - **Shorts:** 20 builds were edited (50 videos) into `C:\Users\Graham\Desktop\Shorts\`. **15 finished takes
   still need editing** (list in §6.4). The owner said: **don't edit more yet** — they are reviewing the
   existing 50 first and will say which cut/style they like.
