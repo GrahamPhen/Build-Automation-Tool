@@ -1,4 +1,6 @@
-package com.graham.startbuild;
+package com.graham.startbuild.mixin;
+
+import com.graham.startbuild.StartBuildMod;
 
 import net.minecraft.client.player.LocalPlayer;
 import net.minecraft.world.level.block.entity.SignBlockEntity;

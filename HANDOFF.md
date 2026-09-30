@@ -1,6 +1,6 @@
 # HANDOFF — Build Automation Tool (StartBuild 2.17.x)
 
-> Read this first. Last updated **2026-09-29**, mod version **2.17.15**, branch `natural-builder-2.0`
+> Read this first. Last updated **2026-09-29**, mod version **2.17.16**, branch `natural-builder-2.0`
 > (pushed to `origin` = https://github.com/GrahamPhen/Build-Automation-Tool). The Baritone-era docs (1.x) are
 > archived in `docs/`; don't follow them. `CLAUDE.md` holds the short rules; this file holds everything else.
 
@@ -17,6 +17,11 @@
   handles open/toggled blocks, chest pairing, empty bookshelves and blank wall signs, real placement
   offsets for attached blocks, barrel facing, and reachable escape breaks. `gradlew build` passed all
   22 tests; eight bounded restart-script mocks passed. Runtime placement is **not yet verified**.
+  The first 2.17.15 launch installed the approved jar but crashed at 21:17:23 before entering the world:
+  the mixin configuration used the main mod package, which prevented `StartBuildMod` from loading.
+  The reviewed **2.17.16** correction isolates the mixin in `com.graham.startbuild.mixin` and passes
+  `gradlew build` with all 22 tests. Runtime placement remains unverified; the 26.2 game is closed and Aether's
+  autorun remains armed. The held 49-entry queue retains its original hash and order.
   `config\startbuild-queue.hold` has **49 pending entries**, exactly the remaining Sarox imports in mapping
   order, all with `plains`; the first new build will retry at a fresh site after installation. Hold the other
   49 during that retry, then restore their exact order only after the saved world and mod's final state
@@ -33,7 +38,7 @@
 - Queue audit and monitoring state: `build\queue-start-20260929\` preserves the original held queue,
   reviewed 56-entry proposal and `runtime-state.json` (game/watcher PIDs, logs and lifecycle cursor).
   `switch-new50-20260929\` preserves the 55-entry queue before the correction and stop/start evidence.
-  The first Aether watcher (PID 36296) has exited; the 26.2 game is idle following the failed take.
+  The first Aether watcher (PID 36296) has exited; the 26.2 game is closed after the failed patched launch.
   A bounded watcher will be started for the patched Aether retry. Heartbeat
   `watch-startbuild-queue` checks this chat every 15 minutes and handles completed takes or actual issues.
   Startup required a process-local WindowsPowerShell module path; no machine environment or mod changed.
