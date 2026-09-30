@@ -6,9 +6,34 @@
 
 ---
 
-## 0. Where things stand right now (2026-09-30 08:23 Denver)
+## 0. Where things stand right now (2026-09-30 08:48 Denver)
 
-- **PAUSED after the repeated Briarwood 2.17.18 stall; 3 accepted takes, 46 pending held.**
+- **Windmill is recording on 2.17.18; 3 accepted takes, 46 pending, Briarwood moved once to the end.**
+  Graham explicitly authorized skipping Briarwood, continuing the queue and repairing its stall.
+  This supersedes the earlier Briarwood-only acceptance hold; Briarwood is now last in the authorized queue.
+  Windmill started at 08:36:18 at `-19686,64,-28800`, same 26.2 PID31220 started 07:26:38.029304.
+  The reordered 46 entries are now a **maintenance installation hold**, not a user pause: first
+  `Clock_Tower_Vol.1 plains`, last `Briarwood_House_TIER_2_ plains`, SHA256
+  `D79E640225258B7E802B00C7FF9F2A3576E65B3109C2CC2C4D99E5C6E7B610A4`.
+- **Exact stall fix 2.17.19 is reviewed, pushed and staged; installation/live validation are pending.**
+  Commit `6ec2ca3`, full build, 29 tests passed. Preserved replay evidence identifies spruce gate
+  `(-18932,79,-29830)`: 3351 coordinate occurrences, 1116 air updates and 1677 state13507 updates.
+  Vanilla state13507 is west/closed/unpowered; the schematic wants powered=true. The first-step branch
+  waived every placement attempt although no real follow-up click existed, causing endless break/place.
+  Regression reproduces the exact cycle; the fix grants grace only for an actionable second click or
+  existing double-chest partner wait. Exact final-state checking remains; exhausted cells are parked.
+  New jar SHA256: `241F91E9F370FA31E2FA70DB583FB7E62E59E1ECE05AE64052659186A17DB1E7`.
+  Graham's new 20-minute repair window was 08:32:16–08:52:16; push verified 08:43:27. Runtime retains prior
+  incident history. Coding incident is resolved/pushed; installation is pending, with no active failure
+  in the healthy Windmill. Evidence: `build\queue-start-20260929\repair-2.17.19\`.
+- **One hidden between-takes restart helper is armed:** PID13940 started 08:45:43.4740349,
+  `tools\ops\restart-between-takes.ps1`, output `repair-2.17.19\restart-helper.{stdout,stderr}.log` under
+  the audit folder. It waits for Windmill Done, allows saving, verifies/closes only 26.2, installs the
+  staged jar while closed, then resumes the exact held queue with Briarwood last. No running-game install.
+  Existing sole take watcher remains PID24712 started 08:35:59.352225; do not duplicate either helper.
+  **For user pause/material failure: stop the verified restart helper FIRST, before writing the stop
+  file, and preserve the held queue.** Otherwise safety-stop Done could trigger unwanted relaunch.
+- **Historical pause after the repeated Briarwood 2.17.18 stall; 3 accepted takes, 46 pending held.**
   Placements/cells stayed at **6313 placed / 6444 left / layer 7** from 08:16:07 through 08:20:07,
   while break attempts rose from 191 to 877. The verified 26.2 game PID31220 (started07:26:38.029304)
   consumed the documented stop file at **08:20:56**; **Done 08:20:57** confirms recording saved.
@@ -20,23 +45,25 @@
   All 46 held entries retain SHA256 `ED84E594A89E9CA47986E56DDAE9BCE3B91D1DC5ACBE9A85F79E9C4CEEE3F337`;
   the active queue remains absent. Runtime cursor:719lines/109068bytes/lastwrite08:20:57.0090804.
   Evidence:`build\queue-start-20260929\retry-2.17.18\repeated-stall-stop-delta.log` and runtime state.
-  **Await explicit Graham guidance; no further diagnosis, repair budget, retry, watcher or heartbeat rearm.**
-  Preserve every prior/retry recording and accepted take; do not release the exact46 held remainder.
+  Every prior/retry recording and accepted take remains preserved. The later explicit authorization
+  and reordered maintenance hold above supersede this historical pause.
 - **Reviewed fix:** commit `c72f0ce`, pushed/mirrored, full build **27 tests passed**. A production-path
   regression proved failed temporary-support breaks had no backoff and could monopolize normal work.
   They now use the existing 60-second cleanup delay, keep supports tracked, and log the exact target;
   successful removal clears its retry entry. Bounded final cleanup remains tested. The historical
-  Briarwood target/cause is still unproven; the pushed fix did not prevent the repeated retry stall above.
+  Briarwood target/cause was unproven at that time; that fix did not prevent the repeated retry stall.
+  The later replay-based gate diagnosis and fix above supersede that uncertainty.
   Graham explicitly renewed 20 minutes at 07:15:33, deadline 07:35:33; fix push was verified at 07:24:16.
-  The original incident history and renewed authorization are retained in runtime state; no new
-  diagnosis/fix budget is authorized. Startup evidence: `build\queue-start-20260929\retry-2.17.18\`.
+  This earlier scaffold fix did not address the now-proven gate first-step loop. Startup evidence:
+  `build\queue-start-20260929\retry-2.17.18\`.
 - **Historical safety pause at 00:42:47: 3 accepted Sarox50 takes, Briarwood stalled/unaccepted,
   46 pending held.** Accepted: Aether Cliff, Lighthouse and Brackenhollow; existing evidence is in
   `build\queue-start-20260929\runtime-state.json`. Briarwood recorded from 23:21:10 at
   `-18665,65,-28265`; two six-minute no-cell-progress watchdogs at 00:31:18 and 00:39:16 preceded
   the safety stop. The original incident budget was 00:31:18–00:46:18, without reset; no speculative fix
   was attempted. `broken` counts click attempts. Failed scaffold-break retry limits are a candidate
-  cause only; the historical live target/cause is unproven. At that stop no code was changed or retry launched.
+  cause only at that time. The later repeated take's exact gate cause is proved above.
+  At that stop no code was changed or retry launched.
   The pending queue is preserved in `<inst>\config\startbuild-queue.hold` (46 entries, next
   `Classic_European_Windmill_TIER_1_ plains`, last `Zyrel_House_TIER_2_ plains`, SHA256
   `ED84E594A89E9CA47986E56DDAE9BCE3B91D1DC5ACBE9A85F79E9C4CEEE3F337`).
@@ -94,7 +121,8 @@
   game/queue/watcher and rotation-aware lifecycle cursor. The current retry watcher is identified above.
   Historical watcher PID27428 started22:40:25; previous PID34484 exited normally after Aether Done22:28.
   Resume evidence and watcher output: `build\queue-start-20260929\resume-user-accepted-20260929\`.
-  Heartbeat `watch-startbuild-queue` is PAUSED after the repeated retry stall, with46 held as above.
+  Heartbeat `watch-startbuild-queue` is ACTIVE (confirmed08:49:14), honoring Briarwood last, the maintenance
+  installation hold and the helper-FIRST safety cancellation order above.
   The watcher uses a process-local WindowsPowerShell module path; no machine environment/mod changed.
 - **Normal monitoring after an explicitly authorized resume:** on completion inspect the
   fresh world, replay, counts and relevant visibility; accept visibly good takes despite verified hidden
