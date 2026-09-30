@@ -1266,7 +1266,11 @@ final class NaturalBuilder {
         }
         int i = indexOf(a.target);
         if (!matches(have, a.want) && a.kind == Kind.PLACE && !placeState(a.want).equals(a.want)
-                && matches(have, placeState(a.want))) {
+                && matches(have, placeState(a.want))
+                && (specialUse(have, a.want) != null || waitingForChestPartner(have, a.want))) {
+            // Only waive an attempt when a real next step exists. A closed, unpowered gate whose
+            // schematic says powered=true has no follow-up click: treating it as an intermediate
+            // state otherwise breaks/replaces it forever without ever reaching MAX_ATTEMPTS.
             progress();         // first step of a two-step block (dirt before farmland, pot before plant)
             return;
         }

@@ -5,6 +5,8 @@ import net.minecraft.client.multiplayer.ClientLevel;
 import net.minecraft.core.BlockPos;
 import net.minecraft.server.Bootstrap;
 import net.minecraft.world.level.block.Blocks;
+import net.minecraft.world.level.block.Block;
+import net.minecraft.world.level.block.state.properties.BlockStateProperties;
 import net.minecraft.world.level.block.state.BlockState;
 import org.junit.jupiter.api.BeforeAll;
 import org.junit.jupiter.api.Test;
@@ -77,14 +79,64 @@ class NaturalBuilderCleanupTest {
         assertTrue(supports.contains(target), "an unremoved exposed support remains reportable");
     }
 
+    @Test void replayFenceGateWithoutASecondStepMustExhaustItsPlacementAttempts() throws Exception {
+        // Preserved Briarwood replay: block-update state13507 repeats at(-18932,79,-29830), alternating with air.
+        var have = Block.stateById(13507);
+        assertSame(Blocks.SPRUCE_FENCE_GATE, have.getBlock());
+        assertEquals(net.minecraft.core.Direction.WEST, have.getValue(BlockStateProperties.HORIZONTAL_FACING));
+        assertFalse(have.getValue(BlockStateProperties.OPEN));
+        assertFalse(have.getValue(BlockStateProperties.POWERED));
+        var want = have.setValue(BlockStateProperties.POWERED, true);
+        assertFalse(NaturalBuilder.matches(have, want), "retain exact final-state validation");
+        assertEquals(have, NaturalBuilder.placeState(want));
+        assertNull(NaturalBuilder.specialUse(have, want), "no real second click can set this powered bit");
+        var model = SchematicModel.blank(1, 1, 1);
+        model.states[0] = want;
+        var target = new BlockPos(-18932, 79, -29830);
+        var builder = new NaturalBuilder(model, target, 0);
+        for (int attempt = 0; attempt < 4; attempt++) {
+            builder.ticks += 7;
+            verifyAction(builder, cleanupLevel(Blocks.AIR.defaultBlockState()), target, "BREAK", want, false);
+            verifyAction(builder, cleanupLevel(have), target, "PLACE", want, false);
+        }
+        byte[] status = field(builder, "status");
+        assertEquals(3, status[0], "the break/place cycle must park instead of resetting forever as a first step");
+        assertEquals(1, builder.remaining());
+    }
+
+    @Test void realSecondClicksAndChestPartnerWaitingStillGetFirstStepGrace() throws Exception {
+        var gate = Blocks.SPRUCE_FENCE_GATE.defaultBlockState().setValue(BlockStateProperties.OPEN, true);
+        var lever = Blocks.LEVER.defaultBlockState().setValue(BlockStateProperties.POWERED, true);
+        var chest = Blocks.CHEST.defaultBlockState().setValue(net.minecraft.world.level.block.ChestBlock.TYPE,
+                net.minecraft.world.level.block.state.properties.ChestType.LEFT);
+        for (var want : new BlockState[]{gate, lever, chest}) {
+            var model = SchematicModel.blank(1, 1, 1);
+            model.states[0] = want;
+            var builder = new NaturalBuilder(model, BlockPos.ZERO, 0);
+            for (int click = 0; click < 4; click++) {
+                verifyAction(builder, cleanupLevel(NaturalBuilder.placeState(want)), BlockPos.ZERO, "PLACE", want, false);
+            }
+            byte[] status = field(builder, "status");
+            assertEquals(1, status[0], "an actionable next click or chest partner must remain eligible");
+            verifyAction(builder, cleanupLevel(want), BlockPos.ZERO, "PLACE", want, false);
+            assertEquals(0, builder.remaining());
+            assertEquals(1, builder.placed);
+        }
+    }
+
     private static void verifyScaffoldBreak(NaturalBuilder builder, ClientLevel level, BlockPos target) throws Exception {
+        verifyAction(builder, level, target, "BREAK", null, true);
+    }
+
+    private static void verifyAction(NaturalBuilder builder, ClientLevel level, BlockPos target,
+                                     String kindName, BlockState want, boolean scaffold) throws Exception {
         Class<?> kind = Class.forName("com.graham.startbuild.NaturalBuilder$Kind");
         Object breaking = java.util.Arrays.stream(kind.getEnumConstants())
-                .filter(value -> value.toString().equals("BREAK")).findFirst().orElseThrow();
+                .filter(value -> value.toString().equals(kindName)).findFirst().orElseThrow();
         Class<?> action = Class.forName("com.graham.startbuild.NaturalBuilder$Action");
         var constructor = action.getDeclaredConstructor(kind, BlockPos.class, BlockState.class, boolean.class);
         constructor.setAccessible(true);
-        Object cleanup = constructor.newInstance(breaking, target, null, true);
+        Object cleanup = constructor.newInstance(breaking, target, want, scaffold);
         var verify = NaturalBuilder.class.getDeclaredMethod("verify", ClientLevel.class, action);
         verify.setAccessible(true);
         verify.invoke(builder, level, cleanup);
