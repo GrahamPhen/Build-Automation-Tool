@@ -1,30 +1,47 @@
 # HANDOFF — Build Automation Tool (StartBuild 2.17.x)
 
-> Read this first. Last updated **2026-09-29**, mod version **2.17.17**, branch `natural-builder-2.0`
+> Read this first. Last updated **2026-09-30**, mod version **2.17.18**, branch `natural-builder-2.0`
 > (pushed to `origin` = https://github.com/GrahamPhen/Build-Automation-Tool). The Baritone-era docs (1.x) are
 > archived in `docs/`; don't follow them. `CLAUDE.md` holds the short rules; this file holds everything else.
 
 ---
 
-## 0. Where things stand right now (2026-09-30 00:43 Denver)
+## 0. Where things stand right now (2026-09-30 07:30 Denver)
 
-- **PAUSED awaiting explicit Graham guidance: 3 accepted Sarox50 takes, Briarwood stalled/unaccepted,
+- **Briarwood retry is recording on 2.17.18; 3 accepted takes, 46 pending held.** Recording started
+  **07:27:47**, origin `-18976,71,-29861`, game PID31220 started 07:26:38.029304, 26.2 only.
+  At 07:29:48 terraforming progressed to 580 broken/3024 left. Exactly one hidden 120-minute watcher:
+  PID43380 started 07:29:19.587622, outputs `build\queue-start-20260929\retry-2.17.18\watch.{stdout,stderr}.log`.
+  **Release the exact held 46-entry remainder only after this retry is accepted under the visibly-good,
+  material-impact standard. A repeated actual Briarwood stall means hold/stop/pause and ask Graham;
+  no new budget or retry.** Heartbeat is ACTIVE watching this retry under that gate (reactivated07:32:50);
+  do not release the queue merely for startup.
+- **Reviewed fix:** commit `c72f0ce`, pushed/mirrored, full build **27 tests passed**. A production-path
+  regression proved failed temporary-support breaks had no backoff and could monopolize normal work.
+  They now use the existing 60-second cleanup delay, keep supports tracked, and log the exact target;
+  successful removal clears its retry entry. Bounded final cleanup remains tested. The historical
+  Briarwood target/cause is still unproven; live validation of the fix is pending this retry.
+  Graham explicitly renewed 20 minutes at 07:15:33, deadline 07:35:33; fix push was verified at 07:24:16.
+  The original incident history and renewed authorization are retained in runtime state; no active
+  failure is known in the progressing retry. Startup evidence: `build\queue-start-20260929\retry-2.17.18\`.
+- **Historical safety pause at 00:42:47: 3 accepted Sarox50 takes, Briarwood stalled/unaccepted,
   46 pending held.** Accepted: Aether Cliff, Lighthouse and Brackenhollow; existing evidence is in
   `build\queue-start-20260929\runtime-state.json`. Briarwood recorded from 23:21:10 at
   `-18665,65,-28265`; two six-minute no-cell-progress watchdogs at 00:31:18 and 00:39:16 preceded
-  the safety stop. One incident budget remains 00:31:18–00:46:18, without reset; no speculative fix
+  the safety stop. The original incident budget was 00:31:18–00:46:18, without reset; no speculative fix
   was attempted. `broken` counts click attempts. Failed scaffold-break retry limits are a candidate
-  cause only; the live target/cause is unproven. No code was changed or retry launched.
+  cause only; the historical live target/cause is unproven. At that stop no code was changed or retry launched.
   The pending queue is preserved in `<inst>\config\startbuild-queue.hold` (46 entries, next
   `Classic_European_Windmill_TIER_1_ plains`, last `Zyrel_House_TIER_2_ plains`, SHA256
   `ED84E594A89E9CA47986E56DDAE9BCE3B91D1DC5ACBE9A85F79E9C4CEEE3F337`).
   The documented stop file was consumed at **00:42:46**; Done at **00:42:47** confirms recording saved:
   `2026-09-30T00_42_46.zip`, 22,103,224 bytes, 6340 character placements and 6422 mod mismatches.
   This interrupted take is preserved and excluded from accepted takes. Watcher PID41900 was stopped
-  after identity verification; heartbeat was PAUSED at 00:41:58. Game PID33604 remains open, 26.2 only.
+  after identity verification; heartbeat was PAUSED at 00:41:58. Game PID33604 was closed at 07:26:24 before
+  installing 2.17.18 through the documented restart script; all 46 held entries were restored unchanged.
   Stop evidence: `build\queue-start-20260929\incident-briarwood-stop-delta.log`; all prior replays remain.
-  **Next: wait for explicit user guidance/resume; do not restart builds, queue, watcher or heartbeat.**
-- **Earlier September 29 operating context (superseded by the pause above):**
+  This preserved interrupted take remains excluded from accepted takes; the authorized retry above is separate.
+- **Earlier September 29 operating context (superseded by the current status above):**
   Tonight's incident limit is one 15-minute wall-clock budget through fix push (review/tests included),
   with no reset by workers/retries; unresolved or unpushed at the deadline means queue/build/workers and
   heartbeat pause until explicit user guidance/resume. Healthy recordings and hidden defects are exempt.
@@ -34,10 +51,10 @@
   visible problems, stalls and failed/empty takes. There is no fixed hidden-defect count cap. Confirm
   relevant visibility before accepting exceptions; `missing-visible` tests air cells only, so wrong
   block/state defects need appropriate visibility evidence. Mod mismatch counts alone are not failure.
-- **Installed repair:** 2.17.17, source `470a446e31dab4e55cd970dd863503f079bf5062`, uses vanilla
-  placement simulation, compatible temporary faces, chest-partner retries and stage-owned access breaks.
-  Real aiming/hand placement is retained. Build passed all 24 tests; committed, pushed and mirrored.
-  Installed jar SHA256: `FC12361975625CFAEC4402D800B5686F715C13AF1A1D92616B0311F9C247C5B3`.
+- **Installed repair:** 2.17.18, source `c72f0ce`, adds failed-support cleanup backoff to 2.17.17's
+  vanilla placement simulation, compatible temporary faces, chest-partner retries and stage-owned access breaks.
+  Real aiming/hand placement is retained. Build passed all 27 tests; reviewed, committed, pushed and mirrored.
+  Installed jar SHA256: `7AA7E1E3EE05337E15EE4CDD0CE291EEBB8A4824D7EBF949BB46E828E4EE0D48`.
 - **Accepted Aether evidence:** 2.17.17 recorded at `-17296, 67, -27481` from 22:10:16 to 22:28:28;
   replay `2026-09-29T22_28_27.zip` is preserved, readable (7 entries), **ACCEPTED_BY_USER**, not claimed defect-free.
   Fresh save: **3384/3388 correct IDs, 4 missing, 0 wrong IDs, 0 missing visible outside**. Three missing
@@ -65,12 +82,13 @@
   command-safe build IDs; [filename/ID/hash/size mapping](docs/sarox-import-20260929.csv). All 55 fit the
   ≤ 55k-block / ≤ 144×144 footprint guidance. Target hashes and offline parsing verified; 50 authorized,
   excluding only standalone `Pine 1.litematic` through `Pine 5.litematic`; `Pinecrest Watchtower` is included.
-  Three Sarox takes are accepted with documented exceptions; Briarwood is interrupted/unaccepted.
+  Three Sarox takes are accepted with documented exceptions; the original Briarwood is interrupted/unaccepted,
+  and its 2.17.18 retry is recording with the remainder held.
 - Queue audit and monitoring state: `build\queue-start-20260929\runtime-state.json` holds the active
-  game/queue/watcher and rotation-aware lifecycle cursor. No watcher is active following the incident stop.
+  game/queue/watcher and rotation-aware lifecycle cursor. The current retry watcher is identified above.
   Historical watcher PID27428 started22:40:25; previous PID34484 exited normally after Aether Done22:28.
   Resume evidence and watcher output: `build\queue-start-20260929\resume-user-accepted-20260929\`.
-  Heartbeat `watch-startbuild-queue` normally checks every15minutes; it is now PAUSED.
+  Heartbeat `watch-startbuild-queue` is ACTIVE every15minutes, with the held46 gate stated above.
   The watcher uses a process-local WindowsPowerShell module path; no machine environment/mod changed.
 - **Normal monitoring after an explicitly authorized resume:** on completion inspect the
   fresh world, replay, counts and relevant visibility; accept visibly good takes despite verified hidden
