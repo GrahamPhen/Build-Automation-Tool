@@ -6,24 +6,30 @@
 
 ---
 
-## 0. Where things stand right now (2026-09-30 07:30 Denver)
+## 0. Where things stand right now (2026-09-30 08:23 Denver)
 
-- **Briarwood retry is recording on 2.17.18; 3 accepted takes, 46 pending held.** Recording started
-  **07:27:47**, origin `-18976,71,-29861`, game PID31220 started 07:26:38.029304, 26.2 only.
-  At 07:29:48 terraforming progressed to 580 broken/3024 left. Exactly one hidden 120-minute watcher:
-  PID43380 started 07:29:19.587622, outputs `build\queue-start-20260929\retry-2.17.18\watch.{stdout,stderr}.log`.
-  **Release the exact held 46-entry remainder only after this retry is accepted under the visibly-good,
-  material-impact standard. A repeated actual Briarwood stall means hold/stop/pause and ask Graham;
-  no new budget or retry.** Heartbeat is ACTIVE watching this retry under that gate (reactivated07:32:50);
-  do not release the queue merely for startup.
+- **PAUSED after the repeated Briarwood 2.17.18 stall; 3 accepted takes, 46 pending held.**
+  Placements/cells stayed at **6313 placed / 6444 left / layer 7** from 08:16:07 through 08:20:07,
+  while break attempts rose from 191 to 877. The verified 26.2 game PID31220 (started07:26:38.029304)
+  consumed the documented stop file at **08:20:56**; **Done 08:20:57** confirms recording saved.
+  The interrupted retry started recording **07:27:47**, origin `-18976,71,-29861`; it is
+  **unaccepted and preserved**: `2026-09-30T08_20_56.zip`, 16,828,495 bytes, readable with 14 entries;
+  recording ID `d627550d-5c55-4819-837c-3d33d38f6ae1`.
+  Verified watcher PID43380 (started07:29:19.587622, hidden120minutes) was stopped at08:20:56;
+  the manager confirmed the heartbeat **PAUSED at 08:20:09**.
+  All 46 held entries retain SHA256 `ED84E594A89E9CA47986E56DDAE9BCE3B91D1DC5ACBE9A85F79E9C4CEEE3F337`;
+  the active queue remains absent. Runtime cursor:719lines/109068bytes/lastwrite08:20:57.0090804.
+  Evidence:`build\queue-start-20260929\retry-2.17.18\repeated-stall-stop-delta.log` and runtime state.
+  **Await explicit Graham guidance; no further diagnosis, repair budget, retry, watcher or heartbeat rearm.**
+  Preserve every prior/retry recording and accepted take; do not release the exact46 held remainder.
 - **Reviewed fix:** commit `c72f0ce`, pushed/mirrored, full build **27 tests passed**. A production-path
   regression proved failed temporary-support breaks had no backoff and could monopolize normal work.
   They now use the existing 60-second cleanup delay, keep supports tracked, and log the exact target;
   successful removal clears its retry entry. Bounded final cleanup remains tested. The historical
-  Briarwood target/cause is still unproven; live validation of the fix is pending this retry.
+  Briarwood target/cause is still unproven; the pushed fix did not prevent the repeated retry stall above.
   Graham explicitly renewed 20 minutes at 07:15:33, deadline 07:35:33; fix push was verified at 07:24:16.
-  The original incident history and renewed authorization are retained in runtime state; no active
-  failure is known in the progressing retry. Startup evidence: `build\queue-start-20260929\retry-2.17.18\`.
+  The original incident history and renewed authorization are retained in runtime state; no new
+  diagnosis/fix budget is authorized. Startup evidence: `build\queue-start-20260929\retry-2.17.18\`.
 - **Historical safety pause at 00:42:47: 3 accepted Sarox50 takes, Briarwood stalled/unaccepted,
   46 pending held.** Accepted: Aether Cliff, Lighthouse and Brackenhollow; existing evidence is in
   `build\queue-start-20260929\runtime-state.json`. Briarwood recorded from 23:21:10 at
@@ -83,12 +89,12 @@
   ≤ 55k-block / ≤ 144×144 footprint guidance. Target hashes and offline parsing verified; 50 authorized,
   excluding only standalone `Pine 1.litematic` through `Pine 5.litematic`; `Pinecrest Watchtower` is included.
   Three Sarox takes are accepted with documented exceptions; the original Briarwood is interrupted/unaccepted,
-  and its 2.17.18 retry is recording with the remainder held.
+  and its 2.17.18 retry is now interrupted/unaccepted with the remainder held.
 - Queue audit and monitoring state: `build\queue-start-20260929\runtime-state.json` holds the active
   game/queue/watcher and rotation-aware lifecycle cursor. The current retry watcher is identified above.
   Historical watcher PID27428 started22:40:25; previous PID34484 exited normally after Aether Done22:28.
   Resume evidence and watcher output: `build\queue-start-20260929\resume-user-accepted-20260929\`.
-  Heartbeat `watch-startbuild-queue` is ACTIVE every15minutes, with the held46 gate stated above.
+  Heartbeat `watch-startbuild-queue` is PAUSED after the repeated retry stall, with46 held as above.
   The watcher uses a process-local WindowsPowerShell module path; no machine environment/mod changed.
 - **Normal monitoring after an explicitly authorized resume:** on completion inspect the
   fresh world, replay, counts and relevant visibility; accept visibly good takes despite verified hidden
