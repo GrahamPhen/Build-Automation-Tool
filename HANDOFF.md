@@ -14,6 +14,10 @@
   gaps; those replays were sent to the Recycle Bin). green_dragon was stopped during tree-felling (nothing
   built, recording discarded) — it was on a 315-tree taiga site, so it was re-queued as plains.
 - The 26.2 recording game (Prism instance `BuildRecording`) is open and idle in the world.
+- **SaroxBuilds import complete:** all 55 requested `.litematic` files are in `<inst>\schematics\` with
+  command-safe build IDs; [filename/ID/hash/size mapping](docs/sarox-import-20260929.csv). All 55 fit the
+  ≤ 55k-block / ≤ 144×144 footprint guidance. Target hashes and offline parsing verified; queue unchanged,
+  no builds started and no runtime placement tests performed.
 - **Shorts:** 20 builds were edited (50 videos) into `C:\Users\Graham\Desktop\Shorts\`. **15 finished takes
   still need editing** (list in §6.4). The owner said: **don't edit more yet** — they are reviewing the
   existing 50 first and will say which cut/style they like.
@@ -63,6 +67,7 @@ Owner's non-negotiables (also in `CLAUDE.md`):
 | Render job file | `<inst>\config\startbuild-render` (read at the title screen) |
 | Music for Shorts | `<inst>\config\startbuild-music\` (aria_math, biome_fest, colossus, haunt_muskie, heat_waves_slowed, middle_of_the_night_slowed, royalty, runaway_slowed, taswell, trap_royalty) |
 | Schematics the game can build | `<inst>\schematics\` (.litematic; the name without extension is the build name) |
+| SaroxBuilds import mapping (55 files, 2026-09-29) | [docs/sarox-import-20260929.csv](docs/sarox-import-20260929.csv) — exact original names, command-safe build IDs, SHA256, non-air blocks, dimensions and one-take fit |
 | Recordings (Flashback replays) | `<inst>\flashback\replays\YYYY-MM-DDTHH_MM_SS.zip` (named by when the take ended) |
 | Flashback exports (raw renders) | `<inst>\flashback\exports\` (13 GB, mostly copies of the Shorts + old tests) |
 | World | `<inst>\saves\Video Building` — regions in `dimensions\minecraft\overworld\region` (26.2 layout) |
