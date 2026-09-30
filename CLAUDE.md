@@ -12,6 +12,12 @@ and what is/isn't verified. `docs/` holds the obsolete Baritone-era notes; don't
   the land (no floating pad, no box cut into a mountain). Never `/fill` terrain.
 - Runs unattended to completion; never saves an empty or stalled take.
 - Accept a visibly good recording; hidden missing/incorrect blocks are acceptable. Do not chase zero mismatches or rebuild for invisible defects; focus on material visible problems, stalls and failed/empty takes.
+- Run the authorized builds back-to-back tonight. For an actual problem, use one 15-minute wall-clock
+  incident budget from the first problem/investigation through fix push, including review and tests;
+  workers and retries do not reset it. Healthy recording duration and hidden defects are exempt. If
+  stuck or the fix remains unpushed at the deadline, hold the pending queue, safely stop affected 26.2
+  build work via the documented stop file if needed, preserve current/retry IDs and recordings, stop
+  workers, pause the existing heartbeat, notify once, and await explicit user guidance/resume.
 - Keep token use low: no screenshots/desktop clicking when a file or log answers the question.
 
 ## Build / install / test (Windows, run from this repo)

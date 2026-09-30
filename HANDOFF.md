@@ -9,6 +9,10 @@
 ## 0. Where things stand right now (2026-09-29 evening)
 
 - **The authorized Sarox50 queue is running on 2.17.17: 1 accepted take, the second recording, 48 pending.**
+  Tonight's incident limit is one 15-minute wall-clock budget through fix push (review/tests included),
+  with no reset by workers/retries; unresolved or unpushed at the deadline means queue/build/workers and
+  heartbeat pause until explicit user guidance/resume. Healthy recordings and hidden defects are exempt.
+  No active incident is known; Lighthouse continues. See `CLAUDE.md` for the stop/preservation procedure.
   Graham accepted `Aether_Cliff_Outpost_tier_1_` on 2026-09-29: "if its only 4 and they are not visible its ok",
   then clarified that missing OR incorrect blocks are acceptable when the recording looks visibly good.
   Do not spend time or usage chasing zero mismatches or repairing invisible defects. Focus on material
