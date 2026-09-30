@@ -586,6 +586,7 @@ final class NaturalBuilder {
             if (!model.inside(nx, ny, nz)) continue;
             int n = model.index(nx, ny, nz);
             BlockState w = model.states[n];
+            if (w == null) continue;        // an empty schematic cell (Fountain_Pack_10+ hit a null here every tick)
             if (!w.isAir() && !isWater(w) && status[n] != 2 && status[n] != 4) return false;
         }
         return true;
