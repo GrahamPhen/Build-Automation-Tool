@@ -1,21 +1,38 @@
 # HANDOFF — Build Automation Tool (StartBuild 2.17.x)
 
-> Read this first. Last updated **2026-09-30**, mod version **2.17.18**, branch `natural-builder-2.0`
+> Read this first. Last updated **2026-09-30**, mod version **2.17.19**, branch `natural-builder-2.0`
 > (pushed to `origin` = https://github.com/GrahamPhen/Build-Automation-Tool). The Baritone-era docs (1.x) are
 > archived in `docs/`; don't follow them. `CLAUDE.md` holds the short rules; this file holds everything else.
 
 ---
 
-## 0. Where things stand right now (2026-09-30 08:48 Denver)
+## 0. Where things stand right now (2026-09-30 09:10 Denver; manager review afterward)
 
-- **Windmill is recording on 2.17.18; 3 accepted takes, 46 pending, Briarwood moved once to the end.**
-  Graham explicitly authorized skipping Briarwood, continuing the queue and repairing its stall.
-  This supersedes the earlier Briarwood-only acceptance hold; Briarwood is now last in the authorized queue.
-  Windmill started at 08:36:18 at `-19686,64,-28800`, same 26.2 PID31220 started 07:26:38.029304.
-  The reordered 46 entries are now a **maintenance installation hold**, not a user pause: first
-  `Clock_Tower_Vol.1 plains`, last `Briarwood_House_TIER_2_ plains`, SHA256
-  `D79E640225258B7E802B00C7FF9F2A3576E65B3109C2CC2C4D99E5C6E7B610A4`.
-- **Exact stall fix 2.17.19 is reviewed, pushed and staged; installation/live validation are pending.**
+- **5 accepted takes; 2.17.19 installed; Dragon's Gate is the last verified active take.**
+  Dragon's Gate recorded at 09:06:12, origin `-20095,66,-29059`; last block at 09:10:33 entered the
+  normal 30-second recording tail. Its completion/acceptance is unreviewed until the next heartbeat.
+  Verified 26.2 PID17084 started 08:50:25.6443198. The last verified queue has **44 pending**, first
+  `Enchanting_Tower_TIER_1_ plains`, Briarwood exactly once last; exact authorized remainder SHA256
+  `CF3497507C7F1B64949ABB4839562DA2F81EF99CFD73AFEAF4F723455D6DF3D2`.
+  Graham's explicit skip/reorder/continue authorization supersedes the earlier Briarwood-only gate.
+- **Windmill and Clock Tower accepted with minor exceptions after manager review.**
+  Windmill Done08:49:07 on2.17.18: readable replay `2026-09-30T08_49_06.zip`, recording ID
+  `20d1cd74-226b-4cc2-831a-ab9803ad60e5`; fresh world2457/2460 correct IDs,3 missing,0 wrong IDs.
+  Two omissions have an outside air line: a small intended-open gate and one underside-visible blade
+  oak-log cell; the other gate is hidden. Clock Tower Done09:05:34 on2.17.19: readable replay
+  `2026-09-30T09_05_34.zip`, recording ID `3ac58566-66e7-40ef-a2a1-5a4fab5d0e57`; fresh world2976/3000
+  correct IDs,24 missing,0 wrong IDs. All24 omissions are thin buttons/four corner finials/central finial.
+  Both have zero watchdogs and no leftover supports; no material body loss is indicated. These are
+  saved-world/report judgments, with no direct video inspection or defect-free claim. Evidence prefixes:
+  `build\queue-start-20260929\windmill-084907-` and `clock-090534-`; IDs accepted once in runtime state.
+- **The helper reported completed at08:50:27; one bounded watcher was rearmed.**
+  Restart helper13940 waited for normal Windmill Done, closed verified26.2 at08:50:09, confirmed closed
+  at08:50:14, installed2.17.19 while closed and relaunched Clock Tower. Helper exited successfully;
+  no helper remains armed. Old watcher24712 ended normally at08:49. Sole hidden120-minute watcher42408
+  started09:07:41.3156629; output `build\queue-start-20260929\watch-0907.{stdout,stderr}.log`.
+  Runtime cursor:601lines/82874bytes/write09:10:33.8784922; rotated `2026-09-30-2.log.gz` consumed through
+  all805lines, including the remainder after750. Installation hold is cleared; preserve Briarwood last.
+- **Exact stall fix 2.17.19 is reviewed, pushed and installed; Briarwood live validation remains pending.**
   Commit `6ec2ca3`, full build, 29 tests passed. Preserved replay evidence identifies spruce gate
   `(-18932,79,-29830)`: 3351 coordinate occurrences, 1116 air updates and 1677 state13507 updates.
   Vanilla state13507 is west/closed/unpowered; the schematic wants powered=true. The first-step branch
@@ -24,15 +41,11 @@
   existing double-chest partner wait. Exact final-state checking remains; exhausted cells are parked.
   New jar SHA256: `241F91E9F370FA31E2FA70DB583FB7E62E59E1ECE05AE64052659186A17DB1E7`.
   Graham's new 20-minute repair window was 08:32:16–08:52:16; push verified 08:43:27. Runtime retains prior
-  incident history. Coding incident is resolved/pushed; installation is pending, with no active failure
-  in the healthy Windmill. Evidence: `build\queue-start-20260929\repair-2.17.19\`.
-- **One hidden between-takes restart helper is armed:** PID13940 started 08:45:43.4740349,
-  `tools\ops\restart-between-takes.ps1`, output `repair-2.17.19\restart-helper.{stdout,stderr}.log` under
-  the audit folder. It waits for Windmill Done, allows saving, verifies/closes only 26.2, installs the
-  staged jar while closed, then resumes the exact held queue with Briarwood last. No running-game install.
-  Existing sole take watcher remains PID24712 started 08:35:59.352225; do not duplicate either helper.
-  **For user pause/material failure: stop the verified restart helper FIRST, before writing the stop
-  file, and preserve the held queue.** Otherwise safety-stop Done could trigger unwanted relaunch.
+  incident history. Coding incident is resolved/pushed; installed jar matches the SHA256 above.
+  Clock Tower completed on2.17.19; exact Briarwood gate-loop validation waits for its last-position take.
+  Evidence: `build\queue-start-20260929\repair-2.17.19\`.
+  **If a future restart helper is armed, stop that verified helper FIRST before any user pause/material
+  failure stop file, preserving the pending queue.** Safety-stop Done must not trigger unwanted relaunch.
 - **Historical pause after the repeated Briarwood 2.17.18 stall; 3 accepted takes, 46 pending held.**
   Placements/cells stayed at **6313 placed / 6444 left / layer 7** from 08:16:07 through 08:20:07,
   while break attempts rose from 191 to 877. The verified 26.2 game PID31220 (started07:26:38.029304)
@@ -84,7 +97,7 @@
   visible problems, stalls and failed/empty takes. There is no fixed hidden-defect count cap. Confirm
   relevant visibility before accepting exceptions; `missing-visible` tests air cells only, so wrong
   block/state defects need appropriate visibility evidence. Mod mismatch counts alone are not failure.
-- **Installed repair:** 2.17.18, source `c72f0ce`, adds failed-support cleanup backoff to 2.17.17's
+- **Historical installed repair:** 2.17.18, source `c72f0ce`, adds failed-support cleanup backoff to 2.17.17's
   vanilla placement simulation, compatible temporary faces, chest-partner retries and stage-owned access breaks.
   Real aiming/hand placement is retained. Build passed all 27 tests; reviewed, committed, pushed and mirrored.
   Installed jar SHA256: `7AA7E1E3EE05337E15EE4CDD0CE291EEBB8A4824D7EBF949BB46E828E4EE0D48`.
@@ -115,15 +128,17 @@
   command-safe build IDs; [filename/ID/hash/size mapping](docs/sarox-import-20260929.csv). All 55 fit the
   ≤ 55k-block / ≤ 144×144 footprint guidance. Target hashes and offline parsing verified; 50 authorized,
   excluding only standalone `Pine 1.litematic` through `Pine 5.litematic`; `Pinecrest Watchtower` is included.
-  Three Sarox takes are accepted with documented exceptions; the original Briarwood is interrupted/unaccepted,
-  and its 2.17.18 retry is now interrupted/unaccepted with the remainder held.
+  Five Sarox takes are accepted with documented exceptions; the original Briarwood and its2.17.18 retry
+  remain interrupted/unaccepted and preserved. Its authorized next attempt is last in the active queue.
 - Queue audit and monitoring state: `build\queue-start-20260929\runtime-state.json` holds the active
   game/queue/watcher and rotation-aware lifecycle cursor. The current retry watcher is identified above.
   Historical watcher PID27428 started22:40:25; previous PID34484 exited normally after Aether Done22:28.
   Resume evidence and watcher output: `build\queue-start-20260929\resume-user-accepted-20260929\`.
   Heartbeat `watch-startbuild-queue` is ACTIVE (confirmed08:49:14), honoring Briarwood last, the maintenance
   installation hold and the helper-FIRST safety cancellation order above.
-  The watcher uses a process-local WindowsPowerShell module path; no machine environment/mod changed.
+  That08:49 historical heartbeat confirmation preceded the completed installation above; the current
+  watcher/cursor and active queue are in the leading bullets. Watchers use a process-local
+  WindowsPowerShell module path; no machine environment/mod changed.
 - **Normal monitoring after an explicitly authorized resume:** on completion inspect the
   fresh world, replay, counts and relevant visibility; accept visibly good takes despite verified hidden
   residuals. Only material visible problems, stalls, failed/empty takes or a user pause justify stopping
