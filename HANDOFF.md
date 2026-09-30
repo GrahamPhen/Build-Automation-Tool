@@ -8,13 +8,16 @@
 
 ## 0. Where things stand right now (2026-09-29 evening)
 
-- **The build queue is ACTIVE**, resumed with the owner's authorization on 2026-09-29 at 20:24.
-  `green_dragon plains` is recording in the 26.2 `BuildRecording` instance at `-17422, 68, -24887`;
-  tree-felling advanced through two trees to tree 3/123. Its earlier 315-tree taiga take was stopped
-  before building and discarded. `config\startbuild-queue.txt` has **55 pending entries**: the original
-  `Sugar_Skull_60 plains`, `Jigglypuff plains`, `sylveon plains`, `house_enchanted plains`, `Grim_Reaper snowy`,
-  followed by 50 Sarox imports in mapping order with `plains`. The last two original entries are REBUILDS
-  (their first takes had visible gaps; those replays were sent to the Recycle Bin).
+- **The build queue is ACTIVE for ONLY the 50 new Sarox builds.** The owner corrected the batch on
+  2026-09-29: skip the six existing builds and go straight to the 50 new ones. `Aether_Cliff_Outpost_tier_1_
+  plains` started recording at 20:32:38 in the 26.2 `BuildRecording` instance at `-17367, 64, -26308`;
+  digging finished with 232 blocks broken, and construction reached 257 placed at 20:34:43.
+  `config\startbuild-queue.txt`
+  has **49 pending entries**, exactly the remaining Sarox imports in mapping order, all with `plains`.
+  The old six (`green_dragon`, `Sugar_Skull_60`, `Jigglypuff`, `sylveon`, `house_enchanted`, `Grim_Reaper`)
+  are skipped and must not be requeued without new authorization. The active `green_dragon` take was
+  stopped through the documented stop file at 20:31:14; the mod logged 0 construction blocks placed
+  and discarded the empty construction take automatically. Existing replay/video files were preserved.
 - **SaroxBuilds import complete:** all 55 requested `.litematic` files are in `<inst>\schematics\` with
   command-safe build IDs; [filename/ID/hash/size mapping](docs/sarox-import-20260929.csv). All 55 fit the
   ≤ 55k-block / ≤ 144×144 footprint guidance. Target hashes and offline parsing verified; 50 now queued,
@@ -22,7 +25,9 @@
   No runtime placement tests of these imports have completed yet.
 - Queue audit and monitoring state: `build\queue-start-20260929\` preserves the original held queue,
   reviewed 56-entry proposal and `runtime-state.json` (game/watcher PIDs, logs and lifecycle cursor).
-  One hidden `tools\ops\watch-take.ps1 -Minutes 600` watches the active take; heartbeat
+  `switch-new50-20260929\` preserves the 55-entry queue before the correction and stop/start evidence.
+  The old watcher exited after the stop; one hidden `tools\ops\watch-take.ps1 -Minutes 600` (PID 36296,
+  started 20:33:10) watches the new active take. Heartbeat
   `watch-startbuild-queue` checks this chat every 15 minutes and handles completed takes or actual issues.
   Startup required a process-local WindowsPowerShell module path; no machine environment or mod changed.
 - **Shorts:** 20 builds were edited (50 videos) into `C:\Users\Graham\Desktop\Shorts\`. **15 finished takes
