@@ -858,7 +858,10 @@ final class NaturalBuilder {
         if (a.kind == Kind.BREAK) {
             BlockState have = level.getBlockState(a.target);
             if (have.isAir()) {
-                if (a.scaffold) scaffolds.remove(a.target);
+                if (a.scaffold) {
+                    scaffolds.remove(a.target);
+                    scaffoldRetryAt.remove(a.target);
+                }
                 return false;
             }
             // Every face, the one towards the player first: judging only that one left 24 supports standing
@@ -1223,7 +1226,10 @@ final class NaturalBuilder {
         BlockState have = level.getBlockState(a.target);
         if (a.kind == Kind.BREAK) {
             if (have.isAir()) {
-                if (a.scaffold) scaffolds.remove(a.target);
+                if (a.scaffold) {
+                    scaffolds.remove(a.target);
+                    scaffoldRetryAt.remove(a.target);
+                }
                 if (a.want != null && a.want.isAir()) markDone(indexOf(a.target));   // clearing: that cell is done
                 if (a.dig && !clearing) {
                     // A build block broken to get out: rebuild it later (parked, so not the very next
@@ -1235,6 +1241,15 @@ final class NaturalBuilder {
                     }
                 }
                 progress();
+                return;
+            }
+            // Cleanup wins over normal work in nextAction. If the server did not remove this support,
+            // yield just as for an unreachable support, rather than clicking it forever. It remains
+            // tracked and gets another chance during the bounded final cleanup passes.
+            if (a.scaffold) {
+                scaffoldRetryAt.put(a.target, ticks + 1200);
+                lastProblem = "could not break temporary support " + name(have) + " at " + a.target;
+                StartBuildMod.LOGGER.warn("[StartBuild] {}; deferring cleanup for 60 s", lastProblem);
                 return;
             }
             // Not gone yet: it is simply picked again - but something that never breaks is parked.
