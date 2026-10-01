@@ -1006,6 +1006,13 @@ final class NaturalBuilder {
         if (face.getAxis() != Direction.Axis.Y) {
             out.add(c.add(0, 0.25, 0));     // top half of the face (slabs/stairs "top")
             out.add(c.add(0, -0.25, 0));    // bottom half
+        } else {
+            // Off-centre spots on a top/bottom face: a door's hinge side follows which half you click. The
+            // centre only ever gave a left hinge (Farmer_House: all 7 right-hinged doors were skipped).
+            out.add(c.add(0.3, 0, 0));
+            out.add(c.add(-0.3, 0, 0));
+            out.add(c.add(0, 0, 0.3));
+            out.add(c.add(0, 0, -0.3));
         }
         return out;
     }
