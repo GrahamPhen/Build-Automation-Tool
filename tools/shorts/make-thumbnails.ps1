@@ -4,8 +4,13 @@
 #   make-thumbnails.ps1 [-Only build1,build2] [-Force]
 param([string] $Root = 'C:\Users\Graham\Desktop\Shorts', [string] $Out = 'C:\Users\Graham\Desktop\Shorts Thumbnails and Titles',
       [string[]] $Only = @(), [switch] $Force, [hashtable] $At = @{})
-# Optional hand-picked frames: video name -> seconds BEFORE THE END of the build's cinematic (B) cut.
-$manual = @{}
+# Hand-picked frames: video name -> seconds BEFORE THE END of the build's cinematic (B) cut, or "C:<seconds>"
+# to take it from the orbit cut instead (when trees block the B reveal).
+$manual = @{
+    'Dragon_s_Gate_TIER_1_-B-cinematic-haunt_muskie' = 4; 'Dragon_s_Gate_TIER_1_-C-orbit-middle_of_the_night_slowed' = 6
+    'house_enchanted-B-cinematic-aria_math' = 5; 'house_enchanted-C-orbit-runaway_slowed' = 8
+    'Farmer_House_TIER_1_-B-cinematic-aria_math' = 'C:8'; 'Farmer_House_TIER_1_-C-orbit-runaway_slowed' = 'C:4'
+}
 foreach ($k in $At.Keys) { $manual[$k] = $At[$k] }
 $ErrorActionPreference = 'Stop'
 Add-Type -AssemblyName System.Drawing
@@ -177,10 +182,12 @@ foreach ($d in Get-ChildItem $Root -Directory | Where-Object { $_.Name -notlike 
         # cut - its last ~7 s show the completed build (earlier, the orbit/timelapse frames can still be mid-build).
         # B thumbnails use the last moments, C/A ones a little earlier in the sweep, so they differ. Of those,
         # the frame whose top is plain bright sky wins (the title goes there).
-        $src = Get-ChildItem $d.FullName -Filter '*-B-cinematic-*.mp4' -File | Select-Object -First 1
+        $srcCut = 'B'; $m = $null
+        if ($manual.ContainsKey($base)) { $m = "$($manual[$base])"; if ($m -match '^([ABC]):(.+)$') { $srcCut = $Matches[1]; $m = $Matches[2] } }
+        $src = Get-ChildItem $d.FullName -Filter "*-$srcCut-*.mp4" -File | Select-Object -First 1
         if (-not $src) { $src = $v }
         $dur = [double]::Parse((& $fp -v error -show_entries format=duration -of csv=p=0 $src.FullName).Trim(), $inv)
-        $before = if ($manual.ContainsKey($base)) { @([double]$manual[$base]) } elseif ($cut -eq 'B') { @(1, 2, 3) } else { @(4, 5, 6.5) }
+        $before = if ($m) { @([double]::Parse($m, $inv)) } elseif ($cut -eq 'B') { @(1, 2, 3) } else { @(4, 5, 6.5) }
         $times = $before | ForEach-Object { [math]::Max(0, $dur - $_) }
         $bestScore = [double]::MaxValue; $pick = $null
         foreach ($tm in $times) {
