@@ -3,7 +3,14 @@
 # "<video name>.jpeg" in the Desktop folder "Shorts Thumbnails and Titles", with titles.csv beside them.
 #   make-thumbnails.ps1 [-Only build1,build2] [-Force]
 param([string] $Root = 'C:\Users\Graham\Desktop\Shorts', [string] $Out = 'C:\Users\Graham\Desktop\Shorts Thumbnails and Titles',
-      [string[]] $Only = @(), [switch] $Force)
+      [string[]] $Only = @(), [switch] $Force, [hashtable] $At = @{})
+# Frames picked by hand where the automatic choice showed a close-up or foliage (video name -> seconds).
+$manual = @{
+    'pokemon_center_80-B-cinematic-royalty' = 31; 'pokemon_center_80-C-orbit-heat_waves_slowed' = 39
+    'storybook_cottage-B-cinematic-aria_math' = 20.9; 'storybook_cottage-C-orbit-taswell' = 51
+    'Mimikyu_House-B-cinematic-royalty' = 28.5; 'Mimikyu_House-C-orbit-heat_waves_slowed' = 51
+}
+foreach ($k in $At.Keys) { $manual[$k] = $At[$k] }
 $ErrorActionPreference = 'Stop'
 Add-Type -AssemblyName System.Drawing
 $bin = Split-Path (Get-ChildItem "$env:LOCALAPPDATA\Microsoft\WinGet\Packages" -Recurse -Filter ffmpeg.exe | Select-Object -First 1).FullName
@@ -71,23 +78,64 @@ function RoundRect($x, $y, $w, $h, $r) {
 function C($hex, $a = 255) { [System.Drawing.Color]::FromArgb($a, [System.Drawing.ColorTranslator]::FromHtml($hex)) }
 $accent = @{ pokemon = '#FFD23F'; spooky = '#FF7A1A'; vehicle = '#4FC3F7'; building = '#7CDB5A' }
 
-function Thumb($frame, $out, $label, $kind) {
+# How busy a band of a frame is (mean brightness change between neighbouring pixels, on a 108x192 copy):
+# sky and plain ground score low, the build scores high - the title goes where it covers the least build.
+$bands = @{ top = @(120, 780); bottom = @(1150, 1810); frameTop = @(0, 380) }
+function Busy($small, $band) {
+    $bmp = [System.Drawing.Bitmap]::FromFile($small)
+    $y0 = [int]($bands[$band][0] / 10); $y1 = [int]($bands[$band][1] / 10)
+    $sum = 0.0; $n = 0; $lum = 0.0
+    for ($y = $y0; $y -lt [math]::Min($y1, $bmp.Height - 1); $y++) {
+        for ($x = 0; $x -lt $bmp.Width - 1; $x++) {
+            $p = $bmp.GetPixel($x, $y); $r = $bmp.GetPixel($x + 1, $y); $d = $bmp.GetPixel($x, $y + 1)
+            $l = 0.3 * $p.R + 0.59 * $p.G + 0.11 * $p.B
+            $sum += [math]::Abs($l - (0.3 * $r.R + 0.59 * $r.G + 0.11 * $r.B)) + [math]::Abs($l - (0.3 * $d.R + 0.59 * $d.G + 0.11 * $d.B))
+            $lum += $l; $n++
+        }
+    }
+    $bmp.Dispose()
+    # sky is bright: a flat dark surface (a close-up wall) must not pass for open sky
+    return $sum / [math]::Max(1, $n) + [math]::Max(0, 150 - $lum / [math]::Max(1, $n)) * 0.4
+}
+
+function Thumb($frame, $out, $label, $kind, $band = 'top') {
     $src = [System.Drawing.Image]::FromFile($frame)
     $bmp = New-Object System.Drawing.Bitmap 1080, 1920
     $g = [System.Drawing.Graphics]::FromImage($bmp)
     $g.SmoothingMode = 'AntiAlias'; $g.InterpolationMode = 'HighQualityBicubic'; $g.TextRenderingHint = 'AntiAlias'
-    $g.DrawImage($src, 0, 0, 1080, 1920); $src.Dispose()
-    # darken the top for the title, and a little at the bottom
-    $top = New-Object System.Drawing.Drawing2D.LinearGradientBrush (New-Object System.Drawing.Point 0, 0), (New-Object System.Drawing.Point 0, 760), (C '#000000' 200), (C '#000000' 0)
-    $g.FillRectangle($top, 0, 0, 1080, 760)
+    if ($band -eq 'top') {
+        # Make room for the title above the build: the frame moves down by $shift (its bottom, foreground ground,
+        # is cropped) and the space above is filled with its own sky, stretched and blurred.
+        $shift = 430
+        $sky = New-Object System.Drawing.Bitmap 27, 30
+        $gs = [System.Drawing.Graphics]::FromImage($sky); $gs.InterpolationMode = 'HighQualityBilinear'
+        $gs.DrawImage($src, (New-Object System.Drawing.Rectangle 0, 0, 27, 30), (New-Object System.Drawing.Rectangle 0, 0, $src.Width, ([int]($src.Height * 0.06))), 'Pixel'); $gs.Dispose()
+        $g.DrawImage($sky, (New-Object System.Drawing.Rectangle -40, -40, 1160, ($shift + 120)))
+        $sky.Dispose()
+        $g.DrawImage($src, (New-Object System.Drawing.Rectangle 0, $shift, 1080, 1920), (New-Object System.Drawing.Rectangle 0, 0, $src.Width, $src.Height), 'Pixel')
+        # soften the seam between the stretched sky and the frame
+        $seam = New-Object System.Drawing.Drawing2D.LinearGradientBrush (New-Object System.Drawing.Point 0, ($shift - 1)), (New-Object System.Drawing.Point 0, ($shift + 90)), (C '#000000' 60), (C '#000000' 0)
+        $g.FillRectangle($seam, 0, $shift, 1080, 90)
+    } else {
+        $g.DrawImage($src, 0, 0, 1080, 1920)
+    }
+    $src.Dispose()
+    # darken the band the title goes in (top, or bottom when the build fills the top)
+    if ($band -eq 'top') {
+        $shade = New-Object System.Drawing.Drawing2D.LinearGradientBrush (New-Object System.Drawing.Point 0, 0), (New-Object System.Drawing.Point 0, 800), (C '#000000' 190), (C '#000000' 0)
+        $g.FillRectangle($shade, 0, 0, 1080, 800); $pillY = 150; $textTop = 300
+    } else {
+        $shade = New-Object System.Drawing.Drawing2D.LinearGradientBrush (New-Object System.Drawing.Point 0, 1080), (New-Object System.Drawing.Point 0, 1921), (C '#000000' 0), (C '#000000' 190)
+        $g.FillRectangle($shade, 0, 1080, 1080, 840); $pillY = 1180; $textTop = 1300
+    }
     # pill
     $pill = 'MINECRAFT BUILD'
     $pf = New-Object System.Drawing.Font $black, 46, ([System.Drawing.FontStyle]::Regular), ([System.Drawing.GraphicsUnit]::Pixel)
     $pw = [int]$g.MeasureString($pill, $pf).Width + 70
-    $pp = RoundRect ((1080 - $pw) / 2) 150 $pw 88 44
+    $pp = RoundRect ((1080 - $pw) / 2) $pillY $pw 88 44
     $g.FillPath((New-Object System.Drawing.SolidBrush (C $accent[$kind])), $pp)
     $sf = New-Object System.Drawing.StringFormat; $sf.Alignment = 'Center'; $sf.LineAlignment = 'Center'
-    $g.DrawString($pill, $pf, (New-Object System.Drawing.SolidBrush (C '#141414')), (New-Object System.Drawing.RectangleF ((1080 - $pw) / 2), 152, $pw, 88), $sf)
+    $g.DrawString($pill, $pf, (New-Object System.Drawing.SolidBrush (C '#141414')), (New-Object System.Drawing.RectangleF ((1080 - $pw) / 2), ($pillY + 2), $pw, 88), $sf)
     # title: big outlined letters, wrapped to the width, shrunk until it fits in 2 lines
     # one line if it fits, else two lines split at the space that balances them; never break inside a word
     $words = $label.ToUpper() -split ' '
@@ -107,7 +155,7 @@ function Thumb($frame, $out, $label, $kind) {
         if ($size -gt $bestSize) { $bestSize = $size; $best = $lines }
     }
     $path = New-Object System.Drawing.Drawing2D.GraphicsPath
-    $lh = $bestSize * 1.05; $y0 = 300 + (460 - $lh * $best.Count) / 2
+    $lh = $bestSize * 1.05; $y0 = $textTop + (460 - $lh * $best.Count) / 2
     for ($k = 0; $k -lt $best.Count; $k++) {
         $path.AddString($best[$k], $black, 0, $bestSize, (New-Object System.Drawing.RectangleF 0, ($y0 + $k * $lh), 1080, $lh), $sf)
     }
@@ -130,13 +178,22 @@ foreach ($d in Get-ChildItem $Root -Directory | Where-Object { $_.Name -notlike 
         $jpg = Join-Path $Out "$base.jpeg"
         if ((Test-Path $jpg) -and -not $Force) { continue }
         $dur = [double]::Parse((& $fp -v error -show_entries format=duration -of csv=p=0 $v.FullName).Trim(), $inv)
-        # orbit cuts end close in (their wide view is earlier); the others end on the reveal
-        $sec = if ($cut -eq 'C') { $dur * 0.72 } else { [math]::Max(0, $dur - 2.5) }
-        $at = $sec.ToString('0.##', $inv)
+        # Candidate frames with the build finished: the reveal at the end of B/A cuts; the late orbit for C
+        # (its very end is too close in). Each is scored for a top and a bottom title; the least busy wins
+        # (top preferred a little), so the title covers sky or ground instead of the build.
+        $times = if ($manual.ContainsKey($base)) { @([double]$manual[$base]) } elseif ($cut -eq 'C') { @(0.72, 0.8, 0.88, 0.95) | ForEach-Object { $dur * $_ } } else { @(2.5, 4.5, 7) | ForEach-Object { [math]::Max(0, $dur - $_) } }
+        $bestScore = [double]::MaxValue; $pick = $null
+        foreach ($tm in $times) {
+            $small = Join-Path $work ("s{0}.png" -f [array]::IndexOf($times, $tm))
+            & $ff -v error -y -ss ($tm.ToString('0.##', $inv)) -i $v.FullName -frames:v 1 -vf scale=108:192 -update 1 $small
+            # the title band after the frame is moved down covers the frame's top ~330 px: want sky there
+            $score = Busy $small 'frameTop'
+            if ($score -lt $bestScore) { $bestScore = $score; $pick = @($tm, 'top') }
+        }
         $frame = Join-Path $work 'frame.png'
-        & $ff -v error -y -ss $at -i $v.FullName -frames:v 1 -update 1 $frame
-        Thumb $frame $jpg (Display $d.Name) (Kind $d.Name)
-        "thumb $($d.Name)\$base.jpeg"
+        & $ff -v error -y -ss ($pick[0].ToString('0.##', $inv)) -i $v.FullName -frames:v 1 -update 1 $frame
+        Thumb $frame $jpg (Display $d.Name) (Kind $d.Name) $pick[1]
+        "thumb $($d.Name)\$base.jpeg ($($pick[1]) at $([int]$pick[0]) s)"
     }
 }
 $csv = Join-Path $Out 'titles.csv'
