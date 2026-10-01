@@ -4,12 +4,8 @@
 #   make-thumbnails.ps1 [-Only build1,build2] [-Force]
 param([string] $Root = 'C:\Users\Graham\Desktop\Shorts', [string] $Out = 'C:\Users\Graham\Desktop\Shorts Thumbnails and Titles',
       [string[]] $Only = @(), [switch] $Force, [hashtable] $At = @{})
-# Frames picked by hand where the automatic choice showed a close-up or foliage (video name -> seconds).
-$manual = @{
-    'pokemon_center_80-B-cinematic-royalty' = 31; 'pokemon_center_80-C-orbit-heat_waves_slowed' = 39
-    'storybook_cottage-B-cinematic-aria_math' = 20.9; 'storybook_cottage-C-orbit-taswell' = 51
-    'Mimikyu_House-B-cinematic-royalty' = 28.5; 'Mimikyu_House-C-orbit-heat_waves_slowed' = 51
-}
+# Optional hand-picked frames: video name -> seconds BEFORE THE END of the build's cinematic (B) cut.
+$manual = @{}
 foreach ($k in $At.Keys) { $manual[$k] = $At[$k] }
 $ErrorActionPreference = 'Stop'
 Add-Type -AssemblyName System.Drawing
@@ -177,21 +173,25 @@ foreach ($d in Get-ChildItem $Root -Directory | Where-Object { $_.Name -notlike 
         $rows.Add([pscustomobject]@{ Build = (Display $d.Name); Video = $v.Name; Title = $title })
         $jpg = Join-Path $Out "$base.jpeg"
         if ((Test-Path $jpg) -and -not $Force) { continue }
-        $dur = [double]::Parse((& $fp -v error -show_entries format=duration -of csv=p=0 $v.FullName).Trim(), $inv)
-        # Candidate frames with the build finished: the reveal at the end of B/A cuts; the late orbit for C
-        # (its very end is too close in). Each is scored for a top and a bottom title; the least busy wins
-        # (top preferred a little), so the title covers sky or ground instead of the build.
-        $times = if ($manual.ContainsKey($base)) { @([double]$manual[$base]) } elseif ($cut -eq 'C') { @(0.72, 0.8, 0.88, 0.95) | ForEach-Object { $dur * $_ } } else { @(2.5, 4.5, 7) | ForEach-Object { [math]::Max(0, $dur - $_) } }
+        # Only the FINISHED build: every thumbnail comes from the reveal at the end of the build's cinematic (B)
+        # cut - its last ~7 s show the completed build (earlier, the orbit/timelapse frames can still be mid-build).
+        # B thumbnails use the last moments, C/A ones a little earlier in the sweep, so they differ. Of those,
+        # the frame whose top is plain bright sky wins (the title goes there).
+        $src = Get-ChildItem $d.FullName -Filter '*-B-cinematic-*.mp4' -File | Select-Object -First 1
+        if (-not $src) { $src = $v }
+        $dur = [double]::Parse((& $fp -v error -show_entries format=duration -of csv=p=0 $src.FullName).Trim(), $inv)
+        $before = if ($manual.ContainsKey($base)) { @([double]$manual[$base]) } elseif ($cut -eq 'B') { @(1, 2, 3) } else { @(4, 5, 6.5) }
+        $times = $before | ForEach-Object { [math]::Max(0, $dur - $_) }
         $bestScore = [double]::MaxValue; $pick = $null
         foreach ($tm in $times) {
             $small = Join-Path $work ("s{0}.png" -f [array]::IndexOf($times, $tm))
-            & $ff -v error -y -ss ($tm.ToString('0.##', $inv)) -i $v.FullName -frames:v 1 -vf scale=108:192 -update 1 $small
+            & $ff -v error -y -ss ($tm.ToString('0.##', $inv)) -i $src.FullName -frames:v 1 -vf scale=108:192 -update 1 $small
             # the title band after the frame is moved down covers the frame's top ~330 px: want sky there
             $score = Busy $small 'frameTop'
             if ($score -lt $bestScore) { $bestScore = $score; $pick = @($tm, 'top') }
         }
         $frame = Join-Path $work 'frame.png'
-        & $ff -v error -y -ss ($pick[0].ToString('0.##', $inv)) -i $v.FullName -frames:v 1 -update 1 $frame
+        & $ff -v error -y -ss ($pick[0].ToString('0.##', $inv)) -i $src.FullName -frames:v 1 -update 1 $frame
         Thumb $frame $jpg (Display $d.Name) (Kind $d.Name) $pick[1]
         "thumb $($d.Name)\$base.jpeg ($($pick[1]) at $([int]$pick[0]) s)"
     }
