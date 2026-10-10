@@ -11,6 +11,20 @@ $me = Join-Path $env:TEMP 'startbuild-render.log'
 function Say($m) { $l = "{0}  {1}" -f (Get-Date -Format 'HH:mm:ss'), $m; Add-Content $me $l; $l }
 function RecGame { Get-Process javaw -ErrorAction SilentlyContinue | Where-Object { $_.MainWindowTitle -match '26\.2' } | Select-Object -First 1 }
 
+# The build's front (tools\shorts\fronts.json, judged from sides.mjs views) decides frontYaw - every render used
+# 160 before, so reveals often showed a side or the back. Unlisted builds: ask front.mjs.
+$yaws = @{ south = 180; north = 0; east = 270; west = 90 }
+$fronts = Get-Content (Join-Path $PSScriptRoot 'fronts.json') -Raw | ConvertFrom-Json
+$side = $fronts.$Build
+if (-not $side) {
+    $schem = "$inst\schematics\$Build.litematic"
+    if (Test-Path -LiteralPath $schem) { $side = ((node (Join-Path $PSScriptRoot 'front.mjs') $schem --json | ConvertFrom-Json)[0]).front }
+}
+if ($side) {
+    $Common = ($Common -replace '\s*frontYaw=\S+', '') + " frontYaw=$($yaws[$side])"
+    Say "$Build front: $side (frontYaw $($yaws[$side]))"
+}
+
 $g = RecGame
 if ($g) {
     Say "closing 26.2 game pid $($g.Id)"

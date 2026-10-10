@@ -409,13 +409,16 @@ final class RenderDirector {
                 }
                 fixed(c2, mid, front - 40, 6, frontDist * 0.95);
                 speed(c2, B, 6);
+                // the closing sweep settles almost square on the front (it ended at front+35, a side-ish view)
                 move(B, end, new Vector3d(cx, base + h * 0.25, cz), new Vector3d(cx, base + h * 0.4, cz),
-                        front - 55, front + 35, -4, 6, frontDist * 0.95, frontDist * 1.05);
+                        front - 50, front + 12, -4, 6, frontDist * 0.95, frontDist * 1.05);
                 speed(B, end, 10);
             }
             default -> {
-                // One continuous orbit, framed on the build, rising and tightening as it grows.
+                // One continuous orbit, framed on the build, rising and tightening as it grows - and ENDING ON
+                // THE FRONT. (The old angles ran front-140 -> front+200, so every orbit finished on the back.)
                 time = 9000;                                             // bright morning
+                front -= 190;
                 move(0, T, ground, low, front - 140, front - 60, 38, 30, frontDist * 1.45, frontDist * 1.2);
                 speed(0, H, 2);
                 speed(H, T, 10);
