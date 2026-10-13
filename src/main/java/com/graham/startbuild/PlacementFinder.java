@@ -31,13 +31,15 @@ import java.util.Locale;
  */
 final class PlacementFinder {
 
-    enum Wish { WATER, HILL, FLAT }
+    enum Wish { WATER, HILL, FLAT, STREAM }
 
     record Result(BlockPos origin, double cost, int overhang, int buried, int obstacles, int waterDist) {
     }
 
     static Wish parseWish(String text) {
         String t = (text == null) ? "" : text.toLowerCase(Locale.ROOT);
+        // "over a stream": the build spans water - its piers on dry banks, the low overhang above the water.
+        if (t.matches(".*(stream|span|across|over the water|over a river|bridge).*")) return Wish.STREAM;
         if (t.matches(".*(river|lake|water|pond|shore|beach|bank|sea|ocean|coast).*")) return Wish.WATER;
         if (t.matches(".*(hill|mountain|cliff|view|high|peak|ridge).*")) return Wish.HILL;
         return Wish.FLAT;
@@ -50,7 +52,7 @@ final class PlacementFinder {
             {"savanna|acacia", "savanna"}, {"taiga|pine|spruce", "taiga"}, {"birch", "birch"},
             {"dark forest|roofed", "dark_forest"}, {"cherry|sakura|pink", "cherry"}, {"flower", "flower"},
             {"forest|woods|woodland", "forest"}, {"plains|grassland|field", "plains"}, {"meadow", "meadow"},
-            {"swamp|marsh|bog|mangrove", "swamp"}, {"mushroom", "mushroom"}, {"grove", "grove"},
+            {"swamp|marsh|bog|mangrove", "swamp"}, {"stream", "river"}, {"mushroom", "mushroom"}, {"grove", "grove"},
     };
 
     static List<String> biomeWords(String text) {
@@ -68,7 +70,8 @@ final class PlacementFinder {
     static boolean biomeMatches(Holder<Biome> biome, List<String> words) {
         String path = biome.unwrapKey().map(k -> k.identifier().getPath()).orElse("");
         // A build cannot stand in an ocean or a river ("frozen" used to find frozen_ocean).
-        if (path.contains("ocean") || path.contains("river")) return false;
+        // (A house built OVER a stream asks for the river on purpose: "stream" -> "river".)
+        if (path.contains("ocean") || (path.contains("river") && !words.contains("river"))) return false;
         // "plains" must not land in snowy_plains: cold variants only when the wish asked for cold.
         boolean cold = path.contains("snowy") || path.contains("frozen") || path.contains("ice");
         if (cold && !words.contains("snowy") && !words.contains("frozen") && !words.contains("ice_spikes")) return false;
@@ -219,6 +222,17 @@ final class PlacementFinder {
         }
         if (foot.isEmpty()) return List.of();
         int stride = foot.size() > 1500 ? 2 : 1;
+        // Low overhang: columns with nothing in the bottom two layers whose lowest block is at most 4 up - the
+        // deck of a house spanning a stream. For the STREAM wish most of them must be over water.
+        List<int[]> over = new ArrayList<>();
+        for (int z = 0; z < m.sizeZ; z++) {
+            for (int x = 0; x < m.sizeX; x++) {
+                if (!m.at(x, 0, z).isAir() || (m.sizeY > 1 && !m.at(x, 1, z).isAir())) continue;
+                for (int y = 2; y <= Math.min(4, m.sizeY - 1); y++) {
+                    if (!m.at(x, y, z).isAir()) { over.add(new int[]{x, z}); break; }
+                }
+            }
+        }
 
         // 3. Score candidate corners on a 3-block grid.
         List<Result> all = new ArrayList<>();
@@ -285,6 +299,14 @@ final class PlacementFinder {
                         if (cnt > 0) cost -= Math.min(20, ground - around / cnt) * 40.0;
                     }
                     case FLAT -> cost += 0;
+                    case STREAM -> {
+                        if (over.isEmpty()) { rWish++; continue; }
+                        int wetOver = 0;
+                        for (int[] o : over) if (water[(cz + o[1]) * size + cx + o[0]]) wetOver++;
+                        double frac = wetOver / (double) over.size();
+                        if (frac < 0.6) { rWish++; continue; }   // the stream must actually run under it
+                        cost -= frac * 400;
+                    }
                 }
                 double dist = Math.hypot(x0 + cx - centre.getX(), z0 + cz - centre.getZ());
                 cost += dist * 0.004;              // distance only breaks ties
