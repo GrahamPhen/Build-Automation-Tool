@@ -126,6 +126,13 @@ final class NaturalSession {
         String name = text.isEmpty() ? cfg.autoRunSchematic : text.split("\\s+", 2)[0];
         String wish = text.contains(" ") ? text.split("\\s+", 2)[1] : cfg.autoRunWish;
         StartBuildMod.LOGGER.info("[StartBuild] hands-free take: {} wish='{}'", name, wish);
+        // The site search needs the integrated server running too: with another window in front the game
+        // paused itself, generated nothing, and every area "did not load in time" (2026-10-13).
+        Minecraft mc = Minecraft.getInstance();
+        if (mc.options != null && savedPauseOnLostFocus == null) {
+            savedPauseOnLostFocus = mc.options.pauseOnLostFocus;
+            mc.options.pauseOnLostFocus = false;
+        }
         return findSite(name, wish, true);
     }
 
@@ -175,7 +182,7 @@ final class NaturalSession {
         }
         applyWorldSettings();
         // A focus change must not pause the game mid-take (the watchdog would see it as a stall).
-        savedPauseOnLostFocus = mc.options.pauseOnLostFocus;
+        if (savedPauseOnLostFocus == null) savedPauseOnLostFocus = mc.options.pauseOnLostFocus;   // kept from startAuto
         mc.options.pauseOnLostFocus = false;
         deleteStopFile();
 
