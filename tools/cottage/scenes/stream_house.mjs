@@ -51,8 +51,8 @@ for (let x = 8; x <= 16; x++) if (x !== 12) {
   set(x, WALL0, D1 + 1, 'spruce_trapdoor[facing=south,half=top,open=false]');
 }
 // Front door (south wall, west pier) with a landing and steps down to the bank.
-set(3, WALL0, D1, 'spruce_door[facing=south,half=lower,hinge=left,open=false]');
-set(3, WALL0 + 1, D1, 'spruce_door[facing=south,half=upper,hinge=left,open=false]');
+set(3, WALL0, D1, 'spruce_door[facing=north,half=lower,hinge=right,open=false]');
+set(3, WALL0 + 1, D1, 'spruce_door[facing=north,half=upper,hinge=right,open=false]');
 for (const x of [2, 3, 4]) {
   set(x, FLOOR, D1 + 1, 'spruce_planks');
   set(x, FLOOR - 1, D1 + 2, 'stone_brick_stairs[facing=north,half=bottom]');
@@ -82,7 +82,7 @@ for (let y = WALL0; y <= 15; y++) set(21, y, 3, y > 13 ? 'bricks' : 'stone_brick
 set(13, WALL0, 7, 'red_bed[facing=south,part=head]'); set(13, WALL0, 6, 'red_bed[facing=south,part=foot]');
 set(10, WALL0, 4, 'spruce_fence'); set(10, WALL0 + 1, 4, 'spruce_pressure_plate');
 for (let z = 2; z <= 4; z++) set(22, WALL0, z, 'bookshelf');
-set(16, WALL1, 5, 'lantern[hanging=true]');
+// (no lantern hanging inside: nothing above it to hang from)
 // Hanging lanterns under the deck, over the water.
 for (const z of [3, 7]) set(12, FLOOR - 1, z, 'lantern[hanging=true]');
 // Moss and a few plants on the piers' outer faces.
