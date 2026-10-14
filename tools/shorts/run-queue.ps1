@@ -54,10 +54,11 @@ while ($true) {
             $t = (Get-Date).Date.Add($t.TimeOfDay); if ($t -gt (Get-Date).AddMinutes(1)) { $t = $t.AddDays(-1) }
             if ($t -lt $launchTime.AddMinutes(-1)) { continue }
             if ($l -match ("recording=true " + [regex]::Escape($name) + "\.\w+ at (-?\d+), (-?\d+), (-?\d+)")) { $ev.R = $t; $ev.O = @([int]$Matches[1], [int]$Matches[2], [int]$Matches[3]) }
-            elseif ($l -match 'building \((\d+) of \1\)') { $ev.T = $t }
-            elseif ($l -match 'last block placed') { $ev.L = $t }
-            elseif ($l -match 'Done: .*Recording saved') { $ev.D = $t; $result = 'saved' }
-            elseif ($l -match 'Done: |Giving up|Stopped') { $result = 'failed: ' + ($l -replace '^.*\[StartBuild\] ', '') }
+            elseif ($l -cmatch '\] building \((\d+) of \1\)') { $ev.T = $t }
+            elseif ($l -cmatch 'last block placed') { $ev.L = $t }
+            elseif ($l -cmatch '\[StartBuild\] Done: .*Recording saved') { $ev.D = $t; $result = 'saved' }
+            elseif ($l -cmatch '\[StartBuild\] (Done: |Hands-free take: no usable site|.*Giving up|.*Stopped)') { $result = 'failed: ' + ($l -replace '^.*\[StartBuild\] ', '') }
+            # (case-sensitive on purpose: "digging done:" read as a finish closed the castle take mid-dig)
         }
         $cursor = $all.Count
         if (-not $result -and -not (RecGame) -and (Get-Date) -gt $launchTime.AddMinutes(5)) { $result = 'game gone' }
