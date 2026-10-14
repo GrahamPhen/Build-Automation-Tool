@@ -204,5 +204,10 @@ foreach ($d in Get-ChildItem $Root -Directory | Where-Object { $_.Name -notlike 
     }
 }
 $csv = Join-Path $Out 'titles.csv'
+if ($Only.Count -and (Test-Path $csv)) {
+    # one build at a time (run-queue): keep every other build's titles - this used to overwrite the whole list
+    $keep = @(Import-Csv $csv | Where-Object { $rows.Video -notcontains $_.Video })
+    $rows = @($keep) + @($rows) | Sort-Object Build, Video
+}
 $rows | Export-Csv -NoTypeInformation -Encoding UTF8 $csv
 "titles: $($rows.Count) -> $csv"
