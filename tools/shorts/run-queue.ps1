@@ -83,13 +83,14 @@ while ($true) {
     $common = "replay=$($replay.Name) centerX=$($cx.ToString($inv)) centerZ=$($cz.ToString($inv)) baseY=$($ev.O[1]) width=$w depth=$dp height=$h terraformEnd=$T buildEnd=$B"
     $music = Songs $name
     Say "  render: $common music=$music"
-    & (Join-Path $here 'render-take.ps1') -Build $name -Common $common -Jobs "style=orbit music=$music" 2>&1 | ForEach-Object { Say "    $_" }
-    & (Join-Path $here 'add-outro-all.ps1') -Only $name 2>&1 | ForEach-Object { Say "    outro: $_" }
+    try { & (Join-Path $here 'render-take.ps1') -Build $name -Common $common -Jobs "style=orbit music=$music" 2>&1 | ForEach-Object { Say "    $_" } } catch { Say "    render error: $_" }
+    try { & (Join-Path $here 'add-outro-all.ps1') -Only $name 2>&1 | ForEach-Object { Say "    outro: $_" } } catch { Say "    outro error: $_" }
     $final = "C:\Users\Graham\Desktop\Shorts\$name\with-outro\$name-C-orbit-$music.mp4"
     if (Test-Path -LiteralPath $final) {
         $ff = (Get-ChildItem "$env:LOCALAPPDATA\Microsoft\WinGet\Packages" -Recurse -Filter ffmpeg.exe | Select-Object -First 1).FullName
         & $ff -v error -y -i $final -c:v libx264 -preset slow -crf 25 -maxrate 3500k -bufsize 7000k -c:a aac -b:a 160k -movflags +faststart "C:\Users\Graham\Desktop\Shorts\$name\$name - final (phone size).mp4"
-        & (Join-Path $here 'make-thumbnails.ps1') -Only $name 2>&1 | Select-Object -Last 1 | ForEach-Object { Say "    $_" }
+        # a stopping error in a child script used to end this whole loop (it died after Pinecrest's thumbnail)
+        try { & (Join-Path $here 'make-thumbnails.ps1') -Only $name 2>&1 | Select-Object -Last 1 | ForEach-Object { Say "    $_" } } catch { Say "    thumbnail error: $_" }
         Say "  $name SHORT READY"
     } else { Say "  ${name}: no final video" }
 }

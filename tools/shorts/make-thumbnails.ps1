@@ -171,7 +171,7 @@ function Thumb($frame, $out, $label, $kind, $band = 'top') {
 $rows = New-Object System.Collections.Generic.List[object]
 foreach ($d in Get-ChildItem $Root -Directory | Where-Object { $_.Name -notlike '_*' }) {
     if ($Only.Count -and $Only -notcontains $d.Name) { continue }
-    foreach ($v in Get-ChildItem $d.FullName -Filter *.mp4 -File | Sort-Object Name) {
+    foreach ($v in Get-ChildItem $d.FullName -Filter *.mp4 -File | Where-Object { $_.Name -notlike '* - final (phone size).mp4' } | Sort-Object Name) {
         $base = [IO.Path]::GetFileNameWithoutExtension($v.Name)
         $cut = if ($base -match '-([ABC])-') { $Matches[1] } else { 'B' }
         $title = Title $d.Name $cut
@@ -206,8 +206,11 @@ foreach ($d in Get-ChildItem $Root -Directory | Where-Object { $_.Name -notlike 
 $csv = Join-Path $Out 'titles.csv'
 if ($Only.Count -and (Test-Path $csv)) {
     # one build at a time (run-queue): keep every other build's titles - this used to overwrite the whole list
-    $keep = @(Import-Csv $csv | Where-Object { $rows.Video -notcontains $_.Video })
-    $rows = @($keep) + @($rows) | Sort-Object Build, Video
+    $mine = @($rows | ForEach-Object { $_.Video })
+    $merged = New-Object System.Collections.Generic.List[object]
+    foreach ($r in Import-Csv $csv) { if ($mine -notcontains $r.Video) { $merged.Add($r) } }
+    foreach ($r in $rows) { $merged.Add($r) }
+    $rows = $merged | Sort-Object Build, Video
 }
 $rows | Export-Csv -NoTypeInformation -Encoding UTF8 $csv
 "titles: $($rows.Count) -> $csv"
