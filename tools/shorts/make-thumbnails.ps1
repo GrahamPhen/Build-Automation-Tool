@@ -171,7 +171,7 @@ function Thumb($frame, $out, $label, $kind, $band = 'top') {
 $rows = New-Object System.Collections.Generic.List[object]
 foreach ($d in Get-ChildItem $Root -Directory | Where-Object { $_.Name -notlike '_*' }) {
     if ($Only.Count -and $Only -notcontains $d.Name) { continue }
-    foreach ($v in Get-ChildItem $d.FullName -Filter *.mp4 -File | Where-Object { $_.Name -notlike '* - final (phone size).mp4' } | Sort-Object Name) {
+    foreach ($v in Get-ChildItem $d.FullName -Filter *.mp4 -File | Where-Object { $_.Name -notlike '* - final*.mp4' } | Sort-Object Name) {
         $base = [IO.Path]::GetFileNameWithoutExtension($v.Name)
         $cut = if ($base -match '-([ABC])-') { $Matches[1] } else { 'B' }
         $title = Title $d.Name $cut

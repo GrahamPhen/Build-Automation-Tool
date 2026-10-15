@@ -55,6 +55,7 @@ while ($true) {
             if ($t -lt $launchTime.AddMinutes(-1)) { continue }
             if ($l -match ("recording=true " + [regex]::Escape($name) + "\.\w+ at (-?\d+), (-?\d+), (-?\d+)")) { $ev.R = $t; $ev.O = @([int]$Matches[1], [int]$Matches[2], [int]$Matches[3]) }
             elseif ($l -cmatch '\] building \((\d+) of \1\)') { $ev.T = $t }
+            elseif ($l -cmatch 'progress: building - (\d+) placed') { if (-not $ev.P) { $ev.P = @() }; $ev.P += , @($t, [int]$Matches[1]) }
             elseif ($l -cmatch 'last block placed') { $ev.L = $t }
             elseif ($l -cmatch '\[StartBuild\] Done: .*Recording saved') { $ev.D = $t; $result = 'saved' }
             elseif ($l -cmatch '\[StartBuild\] (Done: |Hands-free take: no usable site|.*Giving up|.*Stopped)') { $result = 'failed: ' + ($l -replace '^.*\[StartBuild\] ', '') }
@@ -80,19 +81,27 @@ while ($true) {
     $w = $Matches[7]; $h = $Matches[8]; $dp = $Matches[9]
     $T = if ($ev.T) { [int](($ev.T - $ev.R).TotalSeconds * 20) } else { 20 }
     $B = [int](($ev.L - $ev.R).TotalSeconds * 20)
+    # blocks placed over time (the progress lines) -> the renderer spends the timelapse where the build grows
+    $prog = ($ev.P | ForEach-Object { "{0}:{1}" -f [int](($_[0] - $ev.R).TotalSeconds * 20), $_[1] }) -join ','
     $common = "replay=$($replay.Name) centerX=$($cx.ToString($inv)) centerZ=$($cz.ToString($inv)) baseY=$($ev.O[1]) width=$w depth=$dp height=$h terraformEnd=$T buildEnd=$B"
+    if ($prog) { $common += " progress=$prog" }
     $music = Songs $name
     Say "  render: $common music=$music"
     try { & (Join-Path $here 'render-take.ps1') -Build $name -Common $common -Jobs "style=orbit music=$music" 2>&1 | ForEach-Object { Say "    $_" } } catch { Say "    render error: $_" }
-    try { & (Join-Path $here 'add-outro-all.ps1') -Only $name 2>&1 | ForEach-Object { Say "    outro: $_" } } catch { Say "    outro error: $_" }
-    $final = "C:\Users\Graham\Desktop\Shorts\$name\with-outro\$name-C-orbit-$music.mp4"
-    if (Test-Path -LiteralPath $final) {
-        $ff = (Get-ChildItem "$env:LOCALAPPDATA\Microsoft\WinGet\Packages" -Recurse -Filter ffmpeg.exe | Select-Object -First 1).FullName
-        & $ff -v error -y -i $final -c:v libx264 -preset slow -crf 25 -maxrate 3500k -bufsize 7000k -c:a aac -b:a 160k -movflags +faststart "C:\Users\Graham\Desktop\Shorts\$name\$name - final (phone size).mp4"
+    $raw = "C:\Users\Graham\Desktop\Shorts\$name\$name-C-orbit-$music.mp4"
+    if (Test-Path -LiteralPath $raw) {
         # a stopping error in a child script used to end this whole loop (it died after Pinecrest's thumbnail)
         try { & (Join-Path $here 'make-thumbnails.ps1') -Only $name 2>&1 | Select-Object -Last 1 | ForEach-Object { Say "    $_" } } catch { Say "    thumbnail error: $_" }
-        Say "  $name SHORT READY"
-    } else { Say "  ${name}: no final video" }
+        $row = Import-Csv 'C:\Users\Graham\Desktop\Shorts Thumbnails and Titles\titles.csv' | Where-Object { $_.Video -eq "$name-C-orbit-$music.mp4" } | Select-Object -First 1
+        # hook opening + hook text + server banner + seamless loop (replaces the separate 4.6 s end card)
+        $final = "C:\Users\Graham\Desktop\Shorts\$name\$name - final.mp4"
+        try { & (Join-Path $here 'finish-short.ps1') -In $raw -Out $final -Build $name -Display "$($row.Build)" -Title "$($row.Title)" 2>&1 | ForEach-Object { Say "    $_" } } catch { Say "    finish error: $_" }
+        if (Test-Path -LiteralPath $final) {
+            $ff = (Get-ChildItem "$env:LOCALAPPDATA\Microsoft\WinGet\Packages" -Recurse -Filter ffmpeg.exe | Select-Object -First 1).FullName
+            & $ff -v error -y -i $final -c:v libx264 -preset slow -crf 25 -maxrate 3500k -bufsize 7000k -c:a aac -b:a 160k -movflags +faststart "C:\Users\Graham\Desktop\Shorts\$name\$name - final (phone size).mp4"
+            Say "  $name SHORT READY"
+        } else { Say "  ${name}: no final video" }
+    } else { Say "  ${name}: no rendered video" }
 }
 CloseGame
 Say 'run-queue finished'

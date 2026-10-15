@@ -292,6 +292,61 @@ final class RenderDirector {
     private static Constructor<?> camKf, lapseKf, dayKf;
     private static Object hold, smooth;
 
+    /**
+     * Output seconds for replay ticks [a, b] spread by how much is BUILT in each stretch, not by clock time: the
+     * "progress" key ("tick:placed,..." from the take's progress log lines) gives the cumulative blocks placed.
+     * Quiet stretches (flying about, supports) go by fast, stretches where the shape grows get the time, and
+     * the last 12% of blocks are slowed down into the finish. Rates are smoothed so the speed never jumps.
+     * Without progress data: an even speed, as before.
+     */
+    private static void speedProgress(int a, int b, double seconds) throws Exception {
+        TreeMap<Integer, Double> prog = new TreeMap<>();
+        for (String s : job.getOrDefault("progress", "").split(",")) {
+            String[] kv = s.split(":");
+            if (kv.length == 2) try { prog.put(Integer.parseInt(kv[0].trim()), Double.parseDouble(kv[1].trim())); } catch (NumberFormatException ignored) { }
+        }
+        List<Integer> cuts = new java.util.ArrayList<>();
+        cuts.add(a);
+        for (int t : prog.keySet()) if (t > a + 40 && t < b - 40) cuts.add(t);
+        cuts.add(b);
+        if (prog.size() < 3 || cuts.size() < 3) { speed(a, b, seconds); return; }
+        java.util.function.IntToDoubleFunction placed = t -> {
+            Map.Entry<Integer, Double> lo = prog.floorEntry(t), hi = prog.ceilingEntry(t);
+            if (lo == null) return hi.getValue();
+            if (hi == null || hi.getKey().equals(lo.getKey())) return lo.getValue();
+            return lo.getValue() + (hi.getValue() - lo.getValue()) * (t - lo.getKey()) / (double) (hi.getKey() - lo.getKey());
+        };
+        double total = placed.applyAsDouble(prog.lastKey()), start = placed.applyAsDouble(a);
+        int n = cuts.size() - 1;
+        double[] w = new double[n];
+        double sum = 0;
+        for (int i = 0; i < n; i++) {
+            double d = Math.max(0, placed.applyAsDouble(cuts.get(i + 1)) - placed.applyAsDouble(cuts.get(i)));
+            w[i] = d;
+            sum += d;
+        }
+        double floor = Math.max(1, sum / n * 0.2);                    // a quiet stretch still gets a little time
+        for (int i = 0; i < n; i++) {
+            w[i] = Math.max(w[i], floor);
+            if (total > start && placed.applyAsDouble(cuts.get(i + 1)) >= start + (total - start) * 0.88) w[i] *= 1.6;
+        }
+        // seconds per replay tick, smoothed over neighbours, then scaled back to the segment's total
+        double[] rate = new double[n];
+        double wsum = 0;
+        for (double x : w) wsum += x;
+        for (int i = 0; i < n; i++) rate[i] = seconds * w[i] / wsum / Math.max(1, cuts.get(i + 1) - cuts.get(i));
+        double[] sm = new double[n];
+        for (int i = 0; i < n; i++) {
+            double r = rate[i] * 2, c = 2;
+            if (i > 0) { r += rate[i - 1]; c++; }
+            if (i < n - 1) { r += rate[i + 1]; c++; }
+            sm[i] = r / c;
+        }
+        double out = 0;
+        for (int i = 0; i < n; i++) out += sm[i] * (cuts.get(i + 1) - cuts.get(i));
+        for (int i = 0; i < n; i++) speed(cuts.get(i), cuts.get(i + 1), sm[i] * (cuts.get(i + 1) - cuts.get(i)) * seconds / out);
+    }
+
     /** Output seconds for replay ticks [a, b]: one timelapse segment. */
     private static void speed(int a, int b, double seconds) throws Exception {
         lapse.put(a, lapseKf.newInstance(outTicks));
@@ -391,24 +446,24 @@ final class RenderDirector {
                 speed(0, T, 5);
                 fixed(T, mid, front + 70, 10, frontDist);
                 if (closeup(p1, cx, cz, front)) {                        // cut in close to the character at work
-                    speed(T, p1, 3.5);
+                    speedProgress(T, p1, 3.5);
                     speed(p1, p1 + CLOSEUP_TICKS, 1.5);
                     fixed(p1 + CLOSEUP_TICKS, mid, front + 70, 10, frontDist);
-                    speed(p1 + CLOSEUP_TICKS, c1, 3.5);
+                    speedProgress(p1 + CLOSEUP_TICKS, c1, 3.5);
                 } else {
-                    speed(T, c1, 7);
+                    speedProgress(T, c1, 7);
                 }
                 fixed(c1, mid, front, 24, frontDist * 1.05);
                 if (closeup(p2, cx, cz, front)) {
-                    speed(c1, p2, 3.5);
+                    speedProgress(c1, p2, 3.5);
                     speed(p2, p2 + CLOSEUP_TICKS, 1.5);
                     fixed(p2 + CLOSEUP_TICKS, mid, front, 24, frontDist * 1.05);
-                    speed(p2 + CLOSEUP_TICKS, c2, 3.5);
+                    speedProgress(p2 + CLOSEUP_TICKS, c2, 3.5);
                 } else {
-                    speed(c1, c2, 7);
+                    speedProgress(c1, c2, 7);
                 }
                 fixed(c2, mid, front - 40, 6, frontDist * 0.95);
-                speed(c2, B, 6);
+                speedProgress(c2, B, 6);
                 // the closing sweep settles almost square on the front (it ended at front+35, a side-ish view)
                 move(B, end, new Vector3d(cx, base + h * 0.25, cz), new Vector3d(cx, base + h * 0.4, cz),
                         front - 50, front + 12, -4, 6, frontDist * 0.95, frontDist * 1.05);
@@ -427,14 +482,14 @@ final class RenderDirector {
                 if (closeup(p, cx, cz, front) && p > T + 40) {
                     // Circle up to 40% of the build, cut in to the character for a beat, then circle on.
                     move(T, p, low, between, front - 60, front + 12, 30, 24, frontDist * 1.2, frontDist * 1.12);
-                    speed(T, p, 15);
+                    speedProgress(T, p, 15);
                     closeup(p, cx, cz, front);
                     speed(p, p + CLOSEUP_TICKS, 1.5);
                     move(p + CLOSEUP_TICKS, B, between, mid, front + 12, front + 120, 24, 16, frontDist * 1.12, frontDist);
-                    speed(p + CLOSEUP_TICKS, B, 21);
+                    speedProgress(p + CLOSEUP_TICKS, B, 21);
                 } else {
                     move(T, B, low, mid, front - 60, front + 120, 30, 16, frontDist * 1.2, frontDist);
-                    speed(T, B, 38);
+                    speedProgress(T, B, 38);
                 }
                 move(B, end, mid, mid, front + 120, front + 200, 14, 6, frontDist, frontDist * 0.97);
                 speed(B, end, 10);
