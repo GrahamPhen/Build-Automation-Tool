@@ -36,10 +36,14 @@ $bmp, $g = Canvas 1080 520
 $sf = New-Object System.Drawing.StringFormat; $sf.Alignment = 'Center'; $sf.LineAlignment = 'Center'
 $words = $hookText.ToUpper() -split '\s+'
 $best = $null; $bestSize = 0
-foreach ($nl in 1, 2, 3) {
-    if ($nl -gt $words.Count) { break }
-    $per = [math]::Ceiling($words.Count / $nl); $lines = @()
-    for ($i = 0; $i -lt $words.Count; $i += $per) { $lines += ($words[$i..([math]::Min($i + $per, $words.Count) - 1)] -join ' ') }
+# every 1-line and 2-line split (and 3-line ones only for long hooks); the split giving the biggest text wins
+$options = @(, @($words -join ' '))
+for ($a = 1; $a -lt $words.Count; $a++) { $options += , @(($words[0..($a - 1)] -join ' '), ($words[$a..($words.Count - 1)] -join ' ')) }
+if ($words.Count -ge 7) {
+    for ($a = 1; $a -lt $words.Count - 1; $a++) { for ($b = $a + 1; $b -lt $words.Count; $b++) {
+        $options += , @(($words[0..($a - 1)] -join ' '), ($words[$a..($b - 1)] -join ' '), ($words[$b..($words.Count - 1)] -join ' ')) } }
+}
+foreach ($lines in $options) {
     for ($size = 150; $size -ge 50; $size -= 6) {
         $wmax = 0
         foreach ($ln in $lines) { $q = New-Object System.Drawing.Drawing2D.GraphicsPath; $q.AddString($ln, $black, 0, $size, (New-Object System.Drawing.PointF 0, 0), [System.Drawing.StringFormat]::GenericTypographic); $wmax = [math]::Max($wmax, $q.GetBounds().Width) }

@@ -474,23 +474,15 @@ final class RenderDirector {
                 // THE FRONT. (The old angles ran front-140 -> front+200, so every orbit finished on the back.)
                 time = 9000;                                             // bright morning
                 front -= 190;
-                move(0, T, ground, low, front - 140, front - 60, 38, 30, frontDist * 1.45, frontDist * 1.2);
-                speed(0, H, 2);
-                speed(H, T, 10);
-                int p = T + (int) (D * 0.4);
-                Vector3d between = new Vector3d(cx, (low.y + mid.y) / 2 + (mid.y - low.y) * -0.1, cz);
-                if (closeup(p, cx, cz, front) && p > T + 40) {
-                    // Circle up to 40% of the build, cut in to the character for a beat, then circle on.
-                    move(T, p, low, between, front - 60, front + 12, 30, 24, frontDist * 1.2, frontDist * 1.12);
-                    speedProgress(T, p, 15);
-                    closeup(p, cx, cz, front);
-                    speed(p, p + CLOSEUP_TICKS, 1.5);
-                    move(p + CLOSEUP_TICKS, B, between, mid, front + 12, front + 120, 24, 16, frontDist * 1.12, frontDist);
-                    speedProgress(p + CLOSEUP_TICKS, B, 21);
-                } else {
-                    move(T, B, low, mid, front - 60, front + 120, 30, 16, frontDist * 1.2, frontDist);
-                    speedProgress(T, B, 38);
-                }
+                // Site prep 8.5 s (was 12: ten seconds of distant digging dragged); the build gets the time.
+                move(0, T, ground, low, front - 140, front - 60, 38, 30, frontDist * 1.4, frontDist * 1.05);
+                speed(0, H, 1.5);
+                speed(H, T, 7);
+                // No close-up of the character in the orbit any more: it played 1.5 s at real speed and the
+                // builder was usually standing between clicks - it read as a freeze (castle v2 at 29 s). One
+                // unbroken orbit, starting ~15% closer than before so the walls read while they go up.
+                move(T, B, low, mid, front - 60, front + 120, 30, 16, frontDist * 1.05, frontDist);
+                speedProgress(T, B, 41.5);
                 move(B, end, mid, mid, front + 120, front + 200, 14, 6, frontDist, frontDist * 0.97);
                 speed(B, end, 10);
             }
