@@ -1,5 +1,5 @@
 ﻿{
-    "_about":  "Which side of each build is its front, judged by eye from tools/shorts/sides.mjs views (2026-10-10). Render scripts turn it into frontYaw: south 180, north 0, east 270, west 90. Builds not listed fall back to tools/shorts/front.mjs.",
+    "_about":  "Which side of each build is its front, judged by eye from tools/shorts/sides.mjs views (2026-10-10). Render scripts turn it into frontYaw: south 180, north 0, east 90, west 270 (the camera's look direction; east/west were swapped before 2.17.35). Builds not listed fall back to tools/shorts/front.mjs.",
     "Aether_Cliff_Outpost_tier_1_":  "south",
     "Aether_Lighthouse_Vol.1":  "east",
     "bat_house_80":  "south",

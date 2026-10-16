@@ -7,14 +7,15 @@
 //    types seen from that side, with extra weight for "feature" blocks (glass panes, signs, lanterns,
 //    banners, buttons, black/white wool or concrete = eyes) - is the front.
 // Camera yaw (Minecraft: 0 looks +Z/south, 90 looks -X/west, 180 looks -Z/north, 270 looks +X/east):
-// a front facing south is seen by a camera south of it looking north -> 180.
+// a front facing south is seen by a camera south of it looking north -> 180; an east front by a camera east of
+// it looking west -> 90. (East/west were swapped until 2.17.35, so those Shorts ended on the back.)
 import fs from 'node:fs';
 import path from 'node:path';
 import { readLitematic } from '../cottage/litematic.mjs';
 
 const SIDES = {
   south: { normal: [0, 1], yaw: 180 }, north: { normal: [0, -1], yaw: 0 },
-  east: { normal: [1, 0], yaw: 270 }, west: { normal: [-1, 0], yaw: 90 },
+  east: { normal: [1, 0], yaw: 90 }, west: { normal: [-1, 0], yaw: 270 },
 };
 const FEATURE = /glass_pane|sign|lantern|banner|button|torch|door|trapdoor|flower_pot|item_frame|bell|_wool$|concrete$|terracotta$/;
 const EYES = /(black|white)_(wool|concrete|terracotta)$/;

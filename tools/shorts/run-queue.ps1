@@ -48,12 +48,13 @@ while ($true) {
         Start-Sleep 20
         $all = @(Get-Content $log -ErrorAction SilentlyContinue)
         if ($all.Count -lt $cursor) { $cursor = 0 }                                # rotated (midnight / restart)
+        if ($all.Count -le $cursor) { continue }                                 # nothing new (the range would run backwards)
         foreach ($l in $all[$cursor..($all.Count - 1)]) {
             if ($l -notmatch '^\[(\d\d:\d\d:\d\d)\].*\[StartBuild\]' -or $l -match 'CHAT') { continue }
             $t = [datetime]::ParseExact($Matches[1], 'HH:mm:ss', $inv)
             $t = (Get-Date).Date.Add($t.TimeOfDay); if ($t -gt (Get-Date).AddMinutes(1)) { $t = $t.AddDays(-1) }
             if ($t -lt $launchTime.AddMinutes(-1)) { continue }
-            if ($l -match ("recording=true " + [regex]::Escape($name) + "\.\w+ at (-?\d+), (-?\d+), (-?\d+)")) { $ev.R = $t; $ev.O = @([int]$Matches[1], [int]$Matches[2], [int]$Matches[3]) }
+            if ($l -match ("recording=true " + [regex]::Escape($name) + "\.\w+ at (-?\d+), (-?\d+), (-?\d+)")) { $ev = @{ R = $t; O = @([int]$Matches[1], [int]$Matches[2], [int]$Matches[3]) } }   # a retry starts its timings afresh
             elseif ($l -cmatch '\] building \((\d+) of \1\)') { $ev.T = $t }
             elseif ($l -cmatch 'progress: building - (\d+) placed') { if (-not $ev.P) { $ev.P = @() }; $ev.P += , @($t, [int]$Matches[1]) }
             elseif ($l -cmatch 'last block placed') { $ev.L = $t }
@@ -79,18 +80,22 @@ while ($true) {
     if ($ext -notmatch 'x (\d+)-(\d+) y (\d+)-(\d+) z (\d+)-(\d+) \| w (\d+) h (\d+) d (\d+)') { Say "  no extent: $ext"; continue }
     $cx = $ev.O[0] + ([int]$Matches[1] + [int]$Matches[2]) / 2; $cz = $ev.O[2] + ([int]$Matches[5] + [int]$Matches[6]) / 2
     $w = $Matches[7]; $h = $Matches[8]; $dp = $Matches[9]
-    $T = if ($ev.T) { [int](($ev.T - $ev.R).TotalSeconds * 20) } else { 20 }
+    $by = $ev.O[1] + [int]$Matches[3]                                         # lowest non-air layer, not the region corner
+    if (-not $ev.T) { Say "  no 'building (N of N)' line - cannot time the edit, skipped"; continue }   # (fell back to 20: a slow-motion opening)
+    $T = [int](($ev.T - $ev.R).TotalSeconds * 20)
     $B = [int](($ev.L - $ev.R).TotalSeconds * 20)
     # blocks placed over time (the progress lines) -> the renderer spends the timelapse where the build grows
     $prog = ($ev.P | ForEach-Object { "{0}:{1}" -f [int](($_[0] - $ev.R).TotalSeconds * 20), $_[1] }) -join ','
-    $common = "replay=$($replay.Name) centerX=$($cx.ToString($inv)) centerZ=$($cz.ToString($inv)) baseY=$($ev.O[1]) width=$w depth=$dp height=$h terraformEnd=$T buildEnd=$B"
+    $common = "replay=$($replay.Name) centerX=$($cx.ToString($inv)) centerZ=$($cz.ToString($inv)) baseY=$by width=$w depth=$dp height=$h terraformEnd=$T buildEnd=$B"
     if ($prog) { $common += " progress=$prog" }
     if ($wish -match '(?i)snow|frozen|ice') { $common += ' dusk=0' }     # sunset + shader snow fog looked orange
     $music = Songs $name
     Say "  render: $common music=$music"
+    $renderStart = Get-Date
     try { & (Join-Path $here 'render-take.ps1') -Build $name -Common $common -Jobs "style=orbit music=$music" 2>&1 | ForEach-Object { Say "    $_" } } catch { Say "    render error: $_" }
     $raw = "C:\Users\Graham\Desktop\Shorts\$name\$name-C-orbit-$music.mp4"
-    if (Test-Path -LiteralPath $raw) {
+    # only a video rendered (and checked) just now - a rebuild's earlier take of the same name must not be finished
+    if ((Test-Path -LiteralPath $raw) -and (Get-Item -LiteralPath $raw).LastWriteTime -gt $renderStart) {
         # a stopping error in a child script used to end this whole loop (it died after Pinecrest's thumbnail)
         try { & (Join-Path $here 'make-thumbnails.ps1') -Only $name 2>&1 | Select-Object -Last 1 | ForEach-Object { Say "    $_" } } catch { Say "    thumbnail error: $_" }
         $row = Import-Csv 'C:\Users\Graham\Desktop\Shorts Thumbnails and Titles\titles.csv' | Where-Object { $_.Video -eq "$name-C-orbit-$music.mp4" } | Select-Object -First 1

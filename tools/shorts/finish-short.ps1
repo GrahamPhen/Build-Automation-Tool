@@ -105,9 +105,10 @@ $g2 = @(
     # 3: the server banner over the end of the reveal
     "[3:v]format=rgba,fade=t=in:st=$(N $bannerFrom):d=0.35:alpha=1[bn]",
     "[v1][bn]overlay=x=(W-w)/2+4:y=1270:enable='gte(t,$(N $bannerFrom))',format=yuv420p[v]",
-    # audio: the music's last 1.2 s under the opening (so the loop's sound continues), then the original
+    # audio: 1.2 s of the music from just before its 2 s fade-out under the opening (the very last 1.2 s was
+    # fading to silence, so the hook played almost mute and the song then cut in loud), then the original
     "[0:a]asplit=2[a0][a1]",
-    "[a0]atrim=start=$(N ($dur - $H)),asetpts=PTS-STARTPTS[ah]",
+    "[a0]atrim=start=$(N ([math]::Max(0, $dur - $H - 2))):duration=$(N $H),asetpts=PTS-STARTPTS[ah]",
     "[ah][a1]concat=n=2:v=0:a=1[a]"
 ) -join ';'
 & $ff -v error -y -i $In -loop 1 -framerate $rate -t (N $H) -i $last -loop 1 -framerate $rate -t (N $total) -i $hookPng -loop 1 -framerate $rate -t (N $total) -i $bannerPng `

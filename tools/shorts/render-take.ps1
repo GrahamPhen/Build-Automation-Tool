@@ -13,7 +13,9 @@ function RecGame { Get-Process javaw -ErrorAction SilentlyContinue | Where-Objec
 
 # The build's front (tools\shorts\fronts.json, judged from sides.mjs views) decides frontYaw - every render used
 # 160 before, so reveals often showed a side or the back. Unlisted builds: ask front.mjs.
-$yaws = @{ south = 180; north = 0; east = 270; west = 90 }
+# The yaw is the CAMERA's look direction: an east front is seen from the east, looking west (yaw 90). (East and
+# west were swapped until 2.17.35 - every east/west-front Short ended on the back of the build.)
+$yaws = @{ south = 180; north = 0; east = 90; west = 270 }
 $fronts = Get-Content (Join-Path $PSScriptRoot 'fronts.json') -Raw | ConvertFrom-Json
 $side = $fronts.$Build
 if (-not $side) {
@@ -74,6 +76,8 @@ while ((Get-Date) -lt $deadline) {
 }
 Say "$Build render result: $result"
 Get-Content $log | Select-String '\[StartBuild\] render:' | ForEach-Object { Say ("  " + ($_.Line -replace '^.*\[StartBuild\] render: ', '')) } | Out-Null
+$warns = @(Get-Content $log | Select-String 'render: WARN').Count
+if ($warns) { Say "WARNING: $warns render warning(s) (blocked view / shifted cut points) - look at this video before posting" }
 
 New-Item -ItemType Directory -Force $dest | Out-Null
 $sh = New-Object -ComObject Shell.Application
@@ -81,12 +85,15 @@ $ns = $sh.Namespace($exports)
 foreach ($o in $outs) {
     $p = Join-Path $exports $o
     if (-not (Test-Path $p)) { Say "MISSING $o"; continue }
+    # an old file of the same name (a failed render leaves the previous take's video) must never pass as new
+    if ((Get-Item -LiteralPath $p).LastWriteTime -lt $started) { Say "STALE $o (not rendered this time) - skipped"; continue }
     $i = $ns.ParseName($o)
     $dur = [math]::Round($i.ExtendedProperty('System.Media.Duration') / 1e7, 1)
     $wh = "$($i.ExtendedProperty('System.Video.FrameWidth'))x$($i.ExtendedProperty('System.Video.FrameHeight'))"
     $ab = $i.ExtendedProperty('System.Audio.EncodingBitrate')
     $ok = ($dur -ge 25 -and $dur -le 65 -and $wh -eq '1080x1920' -and $ab)
     Say ("{0}: {1}s {2} audio={3} {4}" -f $o, $dur, $wh, $ab, $(if ($ok) { 'OK' } else { 'CHECK' }))
+    if (-not $ok) { Say "  $o failed the check - not copied to the Shorts folder"; continue }
     Copy-Item $p $dest -Force
     $rest = $o.Substring($Build.Length + 1) -replace '\.mp4$', ''     # B-cinematic-royalty[-t9000]
     $variant = ($rest -split '-')[0..1] -join '-'

@@ -198,9 +198,22 @@ final class RenderDirector {
         return null;
     }
 
-    /** Only the soundtrack in the video: game sounds (at 80x speed, a racket) are muted for the render. */
+    private static net.minecraft.client.CloudStatus savedClouds;
+
+    /**
+     * Only the soundtrack in the video: game sounds (at 80x speed, a racket) are muted for the render. Clouds are
+     * off too - a wide opening shot of a big build sits up at cloud height, and clouds drifting through at
+     * timelapse speed hid the build.
+     */
     private static void muteGameSounds(boolean mute) {
         net.minecraft.client.Options o = Minecraft.getInstance().options;
+        if (mute && savedClouds == null) {
+            savedClouds = o.cloudStatus().get();
+            o.cloudStatus().set(net.minecraft.client.CloudStatus.OFF);
+        } else if (!mute && savedClouds != null) {
+            o.cloudStatus().set(savedClouds);
+            savedClouds = null;
+        }
         if (mute) {
             savedVolumes = new java.util.EnumMap<>(net.minecraft.sounds.SoundSource.class);
             for (net.minecraft.sounds.SoundSource s : net.minecraft.sounds.SoundSource.values()) {
@@ -303,11 +316,18 @@ final class RenderDirector {
         TreeMap<Integer, Double> prog = new TreeMap<>();
         for (String s : job.getOrDefault("progress", "").split(",")) {
             String[] kv = s.split(":");
-            if (kv.length == 2) try { prog.put(Integer.parseInt(kv[0].trim()), Double.parseDouble(kv[1].trim())); } catch (NumberFormatException ignored) { }
+            if (kv.length == 2) try { prog.put(Integer.parseInt(kv[0].trim()) - tickShift, Double.parseDouble(kv[1].trim())); } catch (NumberFormatException ignored) { }
         }
+        // At most one segment per half second of output: a progress line every minute gave the cinematic cut's
+        // 3.5 s stretches ~30 segments, some rounded to 0 output ticks - and Flashback's timelapse froze there.
+        List<Integer> inner = new java.util.ArrayList<>();
+        for (int t : prog.keySet()) if (t > a + 40 && t < b - 40) inner.add(t);
+        int maxSegs = Math.max(1, (int) Math.floor(seconds / 0.5));
+        int every = Math.max(1, (int) Math.ceil((inner.size() + 1) / (double) maxSegs));
         List<Integer> cuts = new java.util.ArrayList<>();
         cuts.add(a);
-        for (int t : prog.keySet()) if (t > a + 40 && t < b - 40) cuts.add(t);
+        for (int i = every - 1; i < inner.size(); i += every) cuts.add(inner.get(i));
+        if (cuts.get(cuts.size() - 1) >= b - 40) cuts.remove(cuts.size() - 1);
         cuts.add(b);
         if (prog.size() < 3 || cuts.size() < 3) { speed(a, b, seconds); return; }
         java.util.function.IntToDoubleFunction placed = t -> {
@@ -348,39 +368,82 @@ final class RenderDirector {
     }
 
     private static int duskFrom = -1;
+    private static int tickShift;                                     // log-clock ticks minus replay ticks (see startExport)
 
-    /**
-     * True if every step of a reveal move sees the build: a ray from the camera to the build's middle must not
-     * hit a block outside the build's own box (grown by 3) before reaching it - i.e. no hill or tree in the way.
-     */
-    private static boolean revealClear(Vector3d target, double yaw0, double yaw1, double p0, double p1, double d0, double d1,
-                                       double cx, double cz, double w, double dp, double base, double h) {
-        Minecraft mc = Minecraft.getInstance();
-        if (mc.level == null) return true;
-        double hx = w / 2 + 3, hz = dp / 2 + 3;
-        for (int k = 0; k <= 10; k++) {
-            double s = k / 10.0;
-            Vector3d e = eye(target, yaw0 + (yaw1 - yaw0) * s, p0 + (p1 - p0) * s, d0 + (d1 - d0) * s);
-            Vec3 from = new Vec3(e.x, e.y, e.z), to = new Vec3(target.x, target.y, target.z);
-            net.minecraft.world.phys.BlockHitResult hit = mc.level.clip(new net.minecraft.world.level.ClipContext(from, to,
-                    net.minecraft.world.level.ClipContext.Block.VISUAL, net.minecraft.world.level.ClipContext.Fluid.NONE,
-                    net.minecraft.world.phys.shapes.CollisionContext.empty()));
-            if (hit.getType() == net.minecraft.world.phys.HitResult.Type.MISS) continue;
-            var p = hit.getBlockPos();
-            boolean inBuild = Math.abs(p.getX() + 0.5 - cx) <= hx && Math.abs(p.getZ() + 0.5 - cz) <= hz
-                    && p.getY() >= base - 2 && p.getY() <= base + h + 2;
-            if (!inBuild) {
-                StartBuildMod.LOGGER.info("[StartBuild] render: reveal view blocked at step {} by {} - lifting the camera", k, p);
-                return false;
+    // ---- Clear view of the build, for EVERY camera position (still shots and every step of every move) ----
+    // A hill, tree or cliff between the camera and the build must never hide it: the Grand Ocean Liner's ending
+    // (and so the Short's opening frame) showed a hillside. Each camera position is tested against nine sight
+    // lines to the build - the corners of its box at the bottom and half way up, and its middle - plus the
+    // camera itself must not sit inside a block. If more than one line is blocked the camera is raised (5
+    // degrees a try) and brought in (6% a try) until it is clear.
+    private static double gCx, gCz, gW, gDp, gBase, gH;
+    private static boolean guardOn;
+    private static int guardFixes;
+
+    private static int blockedLines(Minecraft mc, Vector3d e) {
+        BlockPosHolder.set(e);
+        if (!mc.level.getBlockState(BlockPosHolder.pos).getCollisionShape(mc.level, BlockPosHolder.pos).isEmpty()
+                || !mc.level.getFluidState(BlockPosHolder.pos).isEmpty()) return 99;   // inside a block, or under water
+        // 25 sight lines: 20 round the build's bottom edge (where it meets the ground - nine points let a hill
+        // crest hide the liner's hull between the corners), the four corners half way up, and the middle.
+        int blocked = 0;
+        for (int i = 0; i < 5; i++) {
+            double f = -1 + i * 0.5;
+            for (int s = -1; s <= 1; s += 2) {
+                if (terrainBetween(mc, e, new double[]{gCx + f * (gW / 2 - 0.5), gBase + 1.5, gCz + s * (gDp / 2 - 0.5)}, gCx, gCz, gW, gDp, gBase, gH)) blocked++;
+                if (terrainBetween(mc, e, new double[]{gCx + s * (gW / 2 - 0.5), gBase + 1.5, gCz + f * (gDp / 2 - 0.5)}, gCx, gCz, gW, gDp, gBase, gH)) blocked++;
             }
         }
-        return true;
+        for (int sx = -1; sx <= 1; sx += 2) for (int sz = -1; sz <= 1; sz += 2) {
+            if (terrainBetween(mc, e, new double[]{gCx + sx * Math.max(0, gW / 2 - 1), gBase + gH * 0.5, gCz + sz * Math.max(0, gDp / 2 - 1)},
+                    gCx, gCz, gW, gDp, gBase, gH)) blocked++;
+        }
+        if (terrainBetween(mc, e, new double[]{gCx, gBase + gH * 0.42, gCz}, gCx, gCz, gW, gDp, gBase, gH)) blocked++;
+        return blocked;
+    }
+
+    private static final class BlockPosHolder {
+        static net.minecraft.core.BlockPos pos = net.minecraft.core.BlockPos.ZERO;
+        static void set(Vector3d e) { pos = net.minecraft.core.BlockPos.containing(e.x, e.y, e.z); }
+    }
+
+    private static final int MAX_LIFT = 14;                           // pitch +70 (capped at 80), distance x0.42
+    private static int guardBlocked;
+
+    /** How many 5-degree / 6% steps this camera position needs before it sees the build (0 = already clear). */
+    private static int liftSteps(Vector3d target, double yaw, double pitch, double dist) {
+        Minecraft mc = Minecraft.getInstance();
+        if (!guardOn || mc.level == null) return 0;
+        for (int k = 0; k <= MAX_LIFT; k++) {
+            double p = Math.min(80, pitch + 5 * k), d = dist * Math.pow(0.94, k);
+            // clear = at most one line blocked; once a lift was needed, one step more so the view never grazes a crest
+            if (blockedLines(mc, eye(target, yaw, p, d)) <= 1) return k == 0 ? 0 : Math.min(MAX_LIFT, k + 1);
+        }
+        // Still blocked from almost straight above: say so loudly (it used to give up silently at 8 steps).
+        guardBlocked++;
+        StartBuildMod.LOGGER.warn("[StartBuild] render: WARN view still blocked at yaw {} after {} lifts", Math.round(yaw), MAX_LIFT);
+        return MAX_LIFT;
+    }
+
+    /** True if a block outside the build's own box (grown by 2) sits on the line from the camera to `to`. */
+    private static boolean terrainBetween(Minecraft mc, Vector3d e, double[] to, double cx, double cz, double w, double dp,
+                                          double base, double h) {
+        Vec3 from = new Vec3(e.x, e.y, e.z), end = new Vec3(to[0], to[1], to[2]);
+        net.minecraft.world.phys.BlockHitResult hit = mc.level.clip(new net.minecraft.world.level.ClipContext(from, end,
+                net.minecraft.world.level.ClipContext.Block.VISUAL, net.minecraft.world.level.ClipContext.Fluid.NONE,
+                net.minecraft.world.phys.shapes.CollisionContext.empty()));
+        if (hit.getType() == net.minecraft.world.phys.HitResult.Type.MISS) return false;
+        var p = hit.getBlockPos();
+        boolean inBuild = Math.abs(p.getX() + 0.5 - cx) <= w / 2 + 3 && Math.abs(p.getZ() + 0.5 - cz) <= dp / 2 + 3
+                && p.getY() >= base - 1 && p.getY() <= base + h + 2;
+        return !inBuild;
     }
 
     /** Output seconds for replay ticks [a, b]: one timelapse segment. */
     private static void speed(int a, int b, double seconds) throws Exception {
+        if (b <= a) return;                                           // an empty stretch adds no keyframes
         lapse.put(a, lapseKf.newInstance(outTicks));
-        outTicks += (int) Math.round(seconds * 20);
+        outTicks += Math.max(1, (int) Math.round(seconds * 20));      // never a zero-length segment (froze the timelapse)
         lapse.put(b, lapseKf.newInstance(outTicks));
     }
 
@@ -391,20 +454,70 @@ final class RenderDirector {
         return new Vector3d(target.x - fx * dist, target.y - fy * dist, target.z - fz * dist);
     }
 
-    /** A still shot from replay tick `a` until the next shot (a hard cut). */
+    /** A still shot from replay tick `a` until the next shot (a hard cut) - lifted clear of anything in the way. */
     private static void fixed(int a, Vector3d target, double yaw, double pitch, double dist) throws Exception {
-        cam.put(a, camKf.newInstance(eye(target, yaw, pitch, dist), (float) yaw, (float) pitch, 0f, hold));
+        lastMove = null;                                              // a hard cut: nothing to join to
+        int k = liftSteps(target, yaw, pitch, dist);
+        if (k > 0) { guardFixes++; StartBuildMod.LOGGER.info("[StartBuild] render: still shot at {} lifted {} step(s) for a clear view", a, k); }
+        double p = Math.min(80, pitch + 5 * k), d = dist * Math.pow(0.94, k);
+        cam.put(a, camKf.newInstance(eye(target, yaw, p, d), (float) yaw, (float) p, 0f, hold));
     }
 
-    /** A smooth move over replay ticks [a, b): arc (yaw), tilt, push-in and rise, ending on a still frame. */
+    /**
+     * A smooth move over replay ticks [a, b): arc (yaw), tilt, push-in and rise, ending on a still frame. Every
+     * keyframe - and the half-way point to the next, where the camera also passes - is checked for a clear view;
+     * a lift spreads to the neighbouring keyframes so the camera eases up and down instead of jumping.
+     */
     private static void move(int a, int b, Vector3d t0, Vector3d t1, double yaw0, double yaw1, double p0, double p1,
                              double d0, double d1) throws Exception {
-        int steps = 10;
+        int steps = 20;
+        int[] need = new int[steps + 1];
+        for (int k = 0; k <= steps; k++) {
+            for (double half : new double[]{0, 0.5}) {
+                double s = Math.min(1, (k + half) / steps);
+                Vector3d t = new Vector3d(t0.x + (t1.x - t0.x) * s, t0.y + (t1.y - t0.y) * s, t0.z + (t1.z - t0.z) * s);
+                int l = liftSteps(t, yaw0 + (yaw1 - yaw0) * s, p0 + (p1 - p0) * s, d0 + (d1 - d0) * s);
+                need[k] = Math.max(need[k], l);
+                if (half > 0 && k < steps) need[k + 1] = Math.max(need[k + 1], l);
+            }
+        }
+        int[] lift = new int[steps + 1];
+        int fixedSteps = 0;
+        for (int k = 0; k <= steps; k++) {
+            int m = need[k];
+            for (int j = Math.max(0, k - 2); j <= Math.min(steps, k + 2); j++) m = Math.max(m, need[j] - Math.abs(j - k));   // ramp in/out
+            lift[k] = m;
+            if (m > 0) fixedSteps++;
+        }
+        if (fixedSteps > 0) { guardFixes++; StartBuildMod.LOGGER.info("[StartBuild] render: move {}-{}: {} of {} keyframes lifted for a clear view", a, b, fixedSteps, steps + 1); }
+        Move m = new Move(a, b, t0, t1, yaw0, yaw1, p0, p1, d0, d1, lift);
+        // Where this move carries straight on from the last one, both sides of the join get the same lift (each
+        // move used to work its lifts out alone, so a join at a hill could pop by several steps).
+        if (lastMove != null && lastMove.b == a) {
+            int join = Math.max(lastMove.lift[steps], lift[0]);
+            for (int j = 0; j <= steps; j++) {
+                lastMove.lift[steps - j] = Math.max(lastMove.lift[steps - j], join - j);
+                lift[j] = Math.max(lift[j], join - j);
+            }
+            putMove(lastMove);
+        }
+        putMove(m);
+        lastMove = m;
+    }
+
+    private record Move(int a, int b, Vector3d t0, Vector3d t1, double yaw0, double yaw1, double p0, double p1,
+                        double d0, double d1, int[] lift) { }
+
+    private static Move lastMove;
+
+    private static void putMove(Move m) throws Exception {
+        int steps = m.lift.length - 1;
         for (int k = 0; k <= steps; k++) {
             double s = k / (double) steps;
-            int tick = a + (int) Math.round((b - 1 - a) * s);
-            Vector3d t = new Vector3d(t0.x + (t1.x - t0.x) * s, t0.y + (t1.y - t0.y) * s, t0.z + (t1.z - t0.z) * s);
-            double yaw = yaw0 + (yaw1 - yaw0) * s, pitch = p0 + (p1 - p0) * s, dist = d0 + (d1 - d0) * s;
+            int tick = m.a + (int) Math.round((m.b - 1 - m.a) * s);
+            Vector3d t = new Vector3d(m.t0.x + (m.t1.x - m.t0.x) * s, m.t0.y + (m.t1.y - m.t0.y) * s, m.t0.z + (m.t1.z - m.t0.z) * s);
+            double yaw = m.yaw0 + (m.yaw1 - m.yaw0) * s;
+            double pitch = Math.min(80, m.p0 + (m.p1 - m.p0) * s + 5 * m.lift[k]), dist = (m.d0 + (m.d1 - m.d0) * s) * Math.pow(0.94, m.lift[k]);
             cam.put(tick, camKf.newInstance(eye(t, yaw, pitch, dist), (float) yaw, (float) pitch, 0f, k == steps ? hold : smooth));
         }
     }
@@ -412,12 +525,26 @@ final class RenderDirector {
     private static void startExport() throws Exception {
         String style = job.getOrDefault("style", "orbit");
         int end = totalTicks;
-        int T = (int) Math.min(end, num("terraformEnd", end / 4.0));
-        int B = (int) Math.min(end, Math.max(T + 20, num("buildEnd", end - 600)));
+        // The cut points come from log CLOCK times x 20; if the client dropped ticks the replay is shorter than
+        // that, the last block "lands" past the end and the reveal vanished. The take always records ~600 ticks
+        // (the 30 s stop delay) after the last block, so if that gap is far off, re-anchor on the end.
+        tickShift = 0;
+        double bLog = num("buildEnd", end - 600);
+        if (Math.abs((end - bLog) - 600) > 200 && bLog > end - 200) {
+            tickShift = (int) Math.round(bLog - (end - 600));
+            StartBuildMod.LOGGER.warn("[StartBuild] render: WARN buildEnd {} vs replay end {} - shifting cut points by {} ticks", (int) bLog, end, -tickShift);
+        }
+        int T = (int) Math.max(0, Math.min(end, num("terraformEnd", end / 4.0) - tickShift));
+        int B = (int) Math.min(end, Math.max(T + 20, bLog - tickShift));
+        lastMove = null;
+        guardBlocked = 0;
         int D = B - T, H = Math.min(T, 300);
         double cx = num("centerX", 0) + 0.5, cz = num("centerZ", 0) + 0.5, base = num("baseY", 64);
         double w = num("width", 60), dp = num("depth", 60), h = num("height", 40);
         double front = num("frontYaw", 160);
+        gCx = cx; gCz = cz; gW = w; gDp = dp; gBase = base; gH = h;   // the clear-view guard checks against this box
+        guardOn = num("viewGuard", 1) > 0;
+        guardFixes = 0;
 
         // 9:16 frame, vertical FOV 70: half-width tan = tan(35) * 9/16.
         double tanV = Math.tan(Math.toRadians(35)), tanH = tanV * 9 / 16;
@@ -475,7 +602,8 @@ final class RenderDirector {
                 fixed(0, low, front - 60, 22, frontDist * 1.25);
                 speed(0, T, 5);
                 fixed(T, mid, front + 70, 10, frontDist);
-                if (closeup(p1, cx, cz, front)) {                        // cut in close to the character at work
+                boolean roomForCloseups = D > 400;                        // a short build: p1 + closeup ran past c1
+                if (roomForCloseups && closeup(p1, cx, cz, front)) {                        // cut in close to the character at work
                     speedProgress(T, p1, 3.5);
                     speed(p1, p1 + CLOSEUP_TICKS, 1.5);
                     fixed(p1 + CLOSEUP_TICKS, mid, front + 70, 10, frontDist);
@@ -484,7 +612,7 @@ final class RenderDirector {
                     speedProgress(T, c1, 7);
                 }
                 fixed(c1, mid, front, 24, frontDist * 1.05);
-                if (closeup(p2, cx, cz, front)) {
+                if (roomForCloseups && closeup(p2, cx, cz, front)) {
                     speedProgress(c1, p2, 3.5);
                     speed(p2, p2 + CLOSEUP_TICKS, 1.5);
                     fixed(p2 + CLOSEUP_TICKS, mid, front, 24, frontDist * 1.05);
@@ -514,13 +642,8 @@ final class RenderDirector {
                 // unbroken orbit, starting ~15% closer than before so the walls read while they go up.
                 move(T, B, low, mid, front - 60, front + 120, 30, 16, frontDist * 1.05, frontDist);
                 speedProgress(T, B, 41.5 * sc);
-                // The reveal must see the build: lift the camera until no terrain stands between it and the
-                // build (a hillside hid most of the Grand Ocean Liner's ending).
-                double p0 = 14, p1 = 6, d1 = frontDist * 0.97;
-                for (int k = 0; k < 6 && !revealClear(mid, front + 120, front + 200, p0, p1, frontDist, d1, cx, cz, w, dp, base, h); k++) {
-                    p0 += 6; p1 += 6; d1 *= 0.95;
-                }
-                move(B, end, mid, mid, front + 120, front + 200, p0, p1, frontDist, d1);
+                // (every camera position, this reveal included, is lifted clear of terrain by move()/fixed())
+                move(B, end, mid, mid, front + 120, front + 200, 16, 6, frontDist, frontDist * 0.97);   // starts where the build move ends (14 popped 2 degrees)
                 speed(B, end, 10 * Math.max(0.75, sc));
                 // Golden hour for the reveal: the light warms and lanterns / windows start to glow - a second
                 // payoff after the last block (off for snowy sites: sunset + shader snow fog looked orange).
