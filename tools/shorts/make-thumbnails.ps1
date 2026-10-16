@@ -48,22 +48,22 @@ function Kind($b) {
     if ($b -match '(?i)ship|construction|vehicle') { return 'vehicle' }
     return 'building'
 }
-function Title($b, $cut) {
+# Titles already given (maybe already posted) are kept; new videos get one of several styles - curiosity,
+# challenge, "rate it" and plain searchable ones - picked per video so a run of uploads doesn't all read alike.
+$known = @{}
+$csvPath = Join-Path $Out 'titles.csv'
+if (Test-Path $csvPath) { foreach ($r in Import-Csv $csvPath) { $known[$r.Video] = $r.Title } }
+function Title($b, $cut, $video) {
+    if ($video -and $known.ContainsKey($video)) { return $known[$video] }
     $n = Display $b
-    $t = switch ("$(Kind $b)-$cut") {
-        'pokemon-B'  { "I Built a Giant $n in Minecraft!" }
-        'pokemon-C'  { "$n Statue Timelapse in Minecraft" }
-        'pokemon-A'  { "Watch a $n Come to Life in Minecraft" }
-        'spooky-B'   { "Building a Spooky $n in Minecraft" }
-        'spooky-C'   { "$n Halloween Build Timelapse | Minecraft" }
-        'spooky-A'   { "Spooky Season: $n Minecraft Build" }
-        'vehicle-B'  { "I Built a Huge $n in Minecraft!" }
-        'vehicle-C'  { "$n Build Timelapse | Minecraft" }
-        'building-B' { "Building a $n in Minecraft" }
-        'building-C' { "This Minecraft $n Turned Out Amazing" }
-        default      { "$n Minecraft Build Timelapse" }
+    $pool = switch (Kind $b) {
+        'pokemon'  { @("I Built a Giant $n in Minecraft!", "Building $n Block by Block", "Can I Build a Perfect $n in Minecraft?", "This $n Build Took Hours (Timelapse)", "Rate My Minecraft $n 1-10") }
+        'spooky'   { @("Building a Spooky $n in Minecraft", "Would You Sleep in This $n?", "This $n Is Perfect for Halloween", "Minecraft $n Build Timelapse", "Rate This Spooky $n 1-10") }
+        'vehicle'  { @("I Built a Huge $n in Minecraft!", "How Big Can a Minecraft $n Get?", "Minecraft $n Build Timelapse", "Building a $n Block by Block") }
+        default    { @("Building a $n in Minecraft", "Would You Live in This $n?", "This Minecraft $n Turned Out Amazing", "I Built a $n on a Hill in Minecraft", "Minecraft $n Build Timelapse", "Rate This $n 1-10") }
     }
-    return "$t #minecraft #shorts"
+    $seed = 0; foreach ($ch in "$b$cut".ToCharArray()) { $seed = ($seed * 31 + [int]$ch) % 1000003 }
+    return "$($pool[$seed % $pool.Count]) #minecraft #shorts"
 }
 
 # Graphics helpers.
@@ -174,7 +174,7 @@ foreach ($d in Get-ChildItem $Root -Directory | Where-Object { $_.Name -notlike 
     foreach ($v in Get-ChildItem $d.FullName -Filter *.mp4 -File | Where-Object { $_.Name -notlike '* - final*.mp4' } | Sort-Object Name) {
         $base = [IO.Path]::GetFileNameWithoutExtension($v.Name)
         $cut = if ($base -match '-([ABC])-') { $Matches[1] } else { 'B' }
-        $title = Title $d.Name $cut
+        $title = Title $d.Name $cut $v.Name
         $rows.Add([pscustomobject]@{ Build = (Display $d.Name); Video = $v.Name; Title = $title })
         $jpg = Join-Path $Out "$base.jpeg"
         if ((Test-Path $jpg) -and -not $Force) { continue }

@@ -1,1 +1,4 @@
-﻿{ "stream_house": "The stream stays. The house has to fit." }
+﻿{
+    "stream_house":  "The stream stays. The house has to fit.",
+    "starter_house_after":  "Your starter house doesn\u0027t need rebuilding"
+}

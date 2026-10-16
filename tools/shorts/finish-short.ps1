@@ -20,7 +20,21 @@ if (-not $Display) { $Display = (Get-Culture).TextInfo.ToTitleCase((($Build -rep
 $hooks = @{}
 $hf = Join-Path $PSScriptRoot 'hooks.json'
 if (Test-Path $hf) { (Get-Content $hf -Raw | ConvertFrom-Json).PSObject.Properties | ForEach-Object { $hooks[$_.Name] = $_.Value } }
-$hookText = if ($hooks.ContainsKey($Build)) { $hooks[$Build] } else { "Rate this $Display 1-10" }
+# Default hooks rotate per build (the same "Rate this X 1-10" on every video would go stale); hooks.json overrides.
+$kind = if ($Build -match '(?i)charmander|pikachu|gengar|ninetales|squirtle|vaporeon|rayquaza|pokemon|bulbasaur|mimikyu|rowlet|alakazam|mew|blastoise|articuno|eevee') { 'pokemon' }
+        elseif ($Build -match '(?i)haunt|halloween|pumpkin|witch|ghost|skull|coffin|bat_|cauldron|reaper|necro|grim') { 'spooky' }
+        elseif ($Build -match '(?i)statue|golem|knight|dragon|pharaoh|bust|monster|teddy') { 'statue' }
+        elseif ($Build -match '(?i)ship|liner|boat|kapal|vehicle|construction|truck|car|plane|train') { 'vehicle' }
+        else { 'building' }
+$pool = @{
+    building = @("Rate this $Display 1-10", "Would you live in this $Display?", "Watch this $Display build itself", "Can I build a $Display by hand?")
+    pokemon  = @("Rate this $Display 1-10", "Can I build a giant $Display?", "Watch $Display come to life", "Rate my $Display build 1-10")
+    spooky   = @("Rate this spooky $Display 1-10", "Would you sleep in this $Display?", "Watch this $Display rise", "Too spooky? Rate it 1-10")
+    vehicle  = @("Can I build a giant $Display?", "How big can a Minecraft $Display get?", "Rate this $Display 1-10", "Watch this $Display build itself")
+    statue   = @("Rate this $Display 1-10", "Can I build a giant $Display?", "Watch this $Display come to life", "Rate my $Display build 1-10")
+}
+$seed = 0; foreach ($ch in $Build.ToCharArray()) { $seed = ($seed * 31 + [int]$ch) % 1000003 }
+$hookText = if ($hooks.ContainsKey($Build)) { $hooks[$Build] } else { $pool[$kind][$seed % $pool[$kind].Count] }
 
 # --- graphics: hook text and server banner (System.Drawing, outlined Segoe UI Black like the thumbnails)
 $fc = New-Object System.Drawing.Text.PrivateFontCollection
@@ -34,6 +48,8 @@ function RoundRect($x, $y, $w, $h, $r) { $p = New-Object System.Drawing.Drawing2
 # hook: up to 3 balanced lines, as big as fits 960 px wide
 $bmp, $g = Canvas 1080 520
 $sf = New-Object System.Drawing.StringFormat; $sf.Alignment = 'Center'; $sf.LineAlignment = 'Center'
+# never wrap or clip a line: 'GRAND OCEAN LINER?' just overflowed, wrapped onto a hidden row and vanished
+$sf.FormatFlags = [System.Drawing.StringFormatFlags]::NoWrap -bor [System.Drawing.StringFormatFlags]::NoClip
 $words = $hookText.ToUpper() -split '\s+'
 $best = $null; $bestSize = 0
 # every 1-line and 2-line split (and 3-line ones only for long hooks); the split giving the biggest text wins

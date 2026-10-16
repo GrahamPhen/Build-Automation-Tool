@@ -347,6 +347,36 @@ final class RenderDirector {
         for (int i = 0; i < n; i++) speed(cuts.get(i), cuts.get(i + 1), sm[i] * (cuts.get(i + 1) - cuts.get(i)) * seconds / out);
     }
 
+    private static int duskFrom = -1;
+
+    /**
+     * True if every step of a reveal move sees the build: a ray from the camera to the build's middle must not
+     * hit a block outside the build's own box (grown by 3) before reaching it - i.e. no hill or tree in the way.
+     */
+    private static boolean revealClear(Vector3d target, double yaw0, double yaw1, double p0, double p1, double d0, double d1,
+                                       double cx, double cz, double w, double dp, double base, double h) {
+        Minecraft mc = Minecraft.getInstance();
+        if (mc.level == null) return true;
+        double hx = w / 2 + 3, hz = dp / 2 + 3;
+        for (int k = 0; k <= 10; k++) {
+            double s = k / 10.0;
+            Vector3d e = eye(target, yaw0 + (yaw1 - yaw0) * s, p0 + (p1 - p0) * s, d0 + (d1 - d0) * s);
+            Vec3 from = new Vec3(e.x, e.y, e.z), to = new Vec3(target.x, target.y, target.z);
+            net.minecraft.world.phys.BlockHitResult hit = mc.level.clip(new net.minecraft.world.level.ClipContext(from, to,
+                    net.minecraft.world.level.ClipContext.Block.VISUAL, net.minecraft.world.level.ClipContext.Fluid.NONE,
+                    net.minecraft.world.phys.shapes.CollisionContext.empty()));
+            if (hit.getType() == net.minecraft.world.phys.HitResult.Type.MISS) continue;
+            var p = hit.getBlockPos();
+            boolean inBuild = Math.abs(p.getX() + 0.5 - cx) <= hx && Math.abs(p.getZ() + 0.5 - cz) <= hz
+                    && p.getY() >= base - 2 && p.getY() <= base + h + 2;
+            if (!inBuild) {
+                StartBuildMod.LOGGER.info("[StartBuild] render: reveal view blocked at step {} by {} - lifting the camera", k, p);
+                return false;
+            }
+        }
+        return true;
+    }
+
     /** Output seconds for replay ticks [a, b]: one timelapse segment. */
     private static void speed(int a, int b, double seconds) throws Exception {
         lapse.put(a, lapseKf.newInstance(outTicks));
@@ -474,22 +504,38 @@ final class RenderDirector {
                 // THE FRONT. (The old angles ran front-140 -> front+200, so every orbit finished on the back.)
                 time = 9000;                                             // bright morning
                 front -= 190;
+                double sc = Math.max(0.5, Math.min(1.5, num("seconds", 60) / 60));   // length variants (45 s test)
                 // Site prep 8.5 s (was 12: ten seconds of distant digging dragged); the build gets the time.
                 move(0, T, ground, low, front - 140, front - 60, 38, 30, frontDist * 1.4, frontDist * 1.05);
-                speed(0, H, 1.5);
-                speed(H, T, 7);
+                speed(0, H, 1.5 * sc);
+                speed(H, T, 7 * sc);
                 // No close-up of the character in the orbit any more: it played 1.5 s at real speed and the
                 // builder was usually standing between clicks - it read as a freeze (castle v2 at 29 s). One
                 // unbroken orbit, starting ~15% closer than before so the walls read while they go up.
                 move(T, B, low, mid, front - 60, front + 120, 30, 16, frontDist * 1.05, frontDist);
-                speedProgress(T, B, 41.5);
-                move(B, end, mid, mid, front + 120, front + 200, 14, 6, frontDist, frontDist * 0.97);
-                speed(B, end, 10);
+                speedProgress(T, B, 41.5 * sc);
+                // The reveal must see the build: lift the camera until no terrain stands between it and the
+                // build (a hillside hid most of the Grand Ocean Liner's ending).
+                double p0 = 14, p1 = 6, d1 = frontDist * 0.97;
+                for (int k = 0; k < 6 && !revealClear(mid, front + 120, front + 200, p0, p1, frontDist, d1, cx, cz, w, dp, base, h); k++) {
+                    p0 += 6; p1 += 6; d1 *= 0.95;
+                }
+                move(B, end, mid, mid, front + 120, front + 200, p0, p1, frontDist, d1);
+                speed(B, end, 10 * Math.max(0.75, sc));
+                // Golden hour for the reveal: the light warms and lanterns / windows start to glow - a second
+                // payoff after the last block (off for snowy sites: sunset + shader snow fog looked orange).
+                if (num("dusk", 1) > 0) duskFrom = B;
             }
         }
         time = (int) num("timeOfDay", time);
         day.put(0, dayKf.newInstance(time));
-        day.put(end, dayKf.newInstance(time));
+        if (duskFrom >= 0 && duskFrom < end) {
+            day.put(duskFrom, dayKf.newInstance(time));
+            day.put(end, dayKf.newInstance((int) num("duskTime", 12300)));
+        } else {
+            day.put(end, dayKf.newInstance(time));
+        }
+        duskFrom = -1;
 
         // Soundtrack: an audio file (config/startbuild-music/<music>.ogg), laid under the SILENT export by
         // MusicMixer at normal speed. (Flashback's own audio track plays at the replay's speed - under an

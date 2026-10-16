@@ -85,5 +85,7 @@
     "egyptian+pharaoh_80":  "south",
     "wooden+hut_80":  "south",
     "house_80_gbr":  "south",
-    "stream_house":  "south"
+    "stream_house":  "south",
+    "starter_house_before":  "south",
+    "starter_house_after":  "south"
 }

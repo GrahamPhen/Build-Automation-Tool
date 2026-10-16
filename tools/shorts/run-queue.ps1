@@ -1,4 +1,4 @@
-# Build + edit, one take at a time: launch the next build hands-free, wait for it, then straight away make its
+﻿# Build + edit, one take at a time: launch the next build hands-free, wait for it, then straight away make its
 # Short in the approved style (orbit cut ending square on the build's front, music, MineSurvive outro, a
 # phone-size copy and a thumbnail) before the next build starts.
 #   run-queue.ps1 [-DelayMinutes 0]
@@ -85,6 +85,7 @@ while ($true) {
     $prog = ($ev.P | ForEach-Object { "{0}:{1}" -f [int](($_[0] - $ev.R).TotalSeconds * 20), $_[1] }) -join ','
     $common = "replay=$($replay.Name) centerX=$($cx.ToString($inv)) centerZ=$($cz.ToString($inv)) baseY=$($ev.O[1]) width=$w depth=$dp height=$h terraformEnd=$T buildEnd=$B"
     if ($prog) { $common += " progress=$prog" }
+    if ($wish -match '(?i)snow|frozen|ice') { $common += ' dusk=0' }     # sunset + shader snow fog looked orange
     $music = Songs $name
     Say "  render: $common music=$music"
     try { & (Join-Path $here 'render-take.ps1') -Build $name -Common $common -Jobs "style=orbit music=$music" 2>&1 | ForEach-Object { Say "    $_" } } catch { Say "    render error: $_" }
