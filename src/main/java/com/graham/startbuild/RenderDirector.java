@@ -647,7 +647,14 @@ final class RenderDirector {
                 speed(B, end, 10 * Math.max(0.75, sc));
                 // Golden hour for the reveal: the light warms and lanterns / windows start to glow - a second
                 // payoff after the last block (off for snowy sites: sunset + shader snow fog looked orange).
-                if (num("dusk", 1) > 0) duskFrom = B;
+                // Not when the last shot looks west (an east front): it stares into the setting sun and the shader
+                // haze washed the whole frame orange (liner v4).
+                boolean intoSun = Math.cos(Math.toRadians(front + 200 - 90)) > 0.4;
+                if (intoSun) {                                           // and morning light, so the sun is behind the camera
+                    time = 3000;
+                    StartBuildMod.LOGGER.info("[StartBuild] render: morning, no golden hour - the last shot looks west, into the afternoon sun");
+                }
+                if (num("dusk", 1) > 0 && !intoSun) duskFrom = B;
             }
         }
         time = (int) num("timeOfDay", time);
