@@ -21,11 +21,8 @@ $hooks = @{}
 $hf = Join-Path $PSScriptRoot 'hooks.json'
 if (Test-Path $hf) { (Get-Content $hf -Raw | ConvertFrom-Json).PSObject.Properties | ForEach-Object { $hooks[$_.Name] = $_.Value } }
 # Default hooks rotate per build (the same "Rate this X 1-10" on every video would go stale); hooks.json overrides.
-$kind = if ($Build -match '(?i)charmander|pikachu|gengar|ninetales|squirtle|vaporeon|rayquaza|pokemon|bulbasaur|mimikyu|rowlet|alakazam|mew|blastoise|articuno|eevee') { 'pokemon' }
-        elseif ($Build -match '(?i)haunt|halloween|pumpkin|witch|ghost|skull|coffin|bat_|cauldron|reaper|necro|grim') { 'spooky' }
-        elseif ($Build -match '(?i)statue|golem|knight|dragon|pharaoh|bust|monster|teddy') { 'statue' }
-        elseif ($Build -match '(?i)ship|liner|boat|kapal|vehicle|construction|truck|car|plane|train') { 'vehicle' }
-        else { 'building' }
+. (Join-Path $PSScriptRoot 'shorts-meta.ps1')
+$kind = Get-ShortKind $Build
 $pool = @{
     building = @("Rate this $Display 1-10", "Would you live in this $Display?", "Watch this $Display build itself", "Can I build a $Display by hand?")
     pokemon  = @("Rate this $Display 1-10", "Can I build a giant $Display?", "Watch $Display come to life", "Rate my $Display build 1-10")
@@ -115,17 +112,6 @@ $g2 = @(
     -filter_complex $g2 -map '[v]' -map '[a]' -c:v libx264 -preset medium -crf 18 -pix_fmt yuv420p -c:a aac -b:a 192k -movflags +faststart $Out
 if ($LASTEXITCODE -ne 0) { throw "ffmpeg failed on $In" }
 
-$desc = @"
-$(if ($Title) { $Title } else { "I Built a $Display in Minecraft! #minecraft #shorts" })
-
-Built block by block, then a full orbit of the finished $Display.
-
-Play with us on MineSurvive!
-Java (PC): play.minesurvive.com
-Bedrock (Console / Mobile): bedrock.minesurvive.com  Port 19132
-Discord: discord.gg/minesurvive
-
-#minecraft #minecraftbuilds #shorts #minesurvive
-"@
+$desc = Get-ShortDescription $Build $Display $Title
 Set-Content -Path ([IO.Path]::Combine((Split-Path $Out), "$Build - description.txt")) -Value $desc -Encoding utf8
 "finished: $Out ($(N $total) s)"

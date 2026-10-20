@@ -110,4 +110,6 @@ while ($true) {
     } else { Say "  ${name}: no rendered video" }
 }
 CloseGame
+# upload kit for everything: thumbnails, descriptions with hashtags, one upload sheet
+try { & (Join-Path $here 'package-all.ps1') 2>&1 | Select-Object -Last 1 | ForEach-Object { Say "  $_" } } catch { Say "  package error: $_" }
 Say 'run-queue finished'
