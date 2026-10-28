@@ -24,14 +24,14 @@ if (Test-Path $hf) { (Get-Content $hf -Raw | ConvertFrom-Json).PSObject.Properti
 . (Join-Path $PSScriptRoot 'shorts-meta.ps1')
 $kind = Get-ShortKind $Build
 $pool = @{
-    building = @("Rate this $Display 1-10", "Would you live in this $Display?", "Watch this $Display build itself", "Can I build a $Display by hand?")
+    building = @("Rate this $Display 1-10", "Would you live in this $($Display)?", "Watch this $Display build itself", "Can I build a $Display by hand?")
     pokemon  = @("Rate this $Display 1-10", "Can I build a giant $Display?", "Watch $Display come to life", "Rate my $Display build 1-10")
-    spooky   = @("Rate this spooky $Display 1-10", "Would you sleep in this $Display?", "Watch this $Display rise", "Too spooky? Rate it 1-10")
+    spooky   = @("Rate this spooky $Display 1-10", "Would you sleep in this $($Display)?", "Watch this $Display rise", "Too spooky? Rate it 1-10")
     vehicle  = @("Can I build a giant $Display?", "How big can a Minecraft $Display get?", "Rate this $Display 1-10", "Watch this $Display build itself")
     statue   = @("Rate this $Display 1-10", "Can I build a giant $Display?", "Watch this $Display come to life", "Rate my $Display build 1-10")
 }
 $seed = 0; foreach ($ch in $Build.ToCharArray()) { $seed = ($seed * 31 + [int]$ch) % 1000003 }
-$hookText = if ($hooks.ContainsKey($Build)) { $hooks[$Build] } else { $pool[$kind][$seed % $pool[$kind].Count] }
+$hookText = if ($hooks.ContainsKey($Build)) { $hooks[$Build] } else { $pool[$kind][$seed % $pool[$kind].Count] -creplace '\ba ([AEIOU])', 'an $1' }
 
 # --- graphics: hook text and server banner (System.Drawing, outlined Segoe UI Black like the thumbnails)
 $fc = New-Object System.Drawing.Text.PrivateFontCollection

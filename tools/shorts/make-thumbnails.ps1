@@ -35,19 +35,18 @@ $names = @{
     'Brackenhollow_House_TIER_1_' = 'Fantasy Cottage'; 'Classic_European_Windmill_TIER_1_' = 'Windmill'; 'Clock_Tower_Vol.1' = 'Clock Tower'
     'Enchanting_Tower_TIER_1_' = 'Enchanting Tower'; 'enchanting_tower' = 'Wizard Tower'; 'Fisherman_s_Refuge_TIER_1_' = "Fisherman's Hut"
     'Dragon_s_Gate_TIER_1_' = "Dragon's Gate"; 'house_enchanted' = 'Enchanted House'; 'Grim_Reaper' = 'Grim Reaper'
-    'Farmer_House_TIER_1_' = "Farmer's House"
+    'Farmer_House_TIER_1_' = "Farmer's House"; 'mew2' = 'Mew'; 'Rowlet2' = 'Rowlet'; 'Articuno_3' = 'Articuno'
+    'HousePokemon' = 'Pokemon House'; 'Old_Town_Caf_TIER_1_' = 'Old Town Cafe'; 'The_Blacksmith_s_Home_TIER_1_' = "Blacksmith's Home"
+    'rumah_atap_tinggi' = 'Tall Roof House'; 'rumah_hc' = 'Cozy House'; 'Medieval_Era_TIER_1_' = 'Medieval Home'; 'portal_2.0' = 'Giant Portal'
 }
 function Display($b) {
     if ($names.ContainsKey($b)) { return $names[$b] }
     $t = ($b -replace '_(TIER|tier)_\d+_?$', '' -replace '_\d+$', '' -replace '[_+]', ' ').Trim()
     return (Get-Culture).TextInfo.ToTitleCase($t)
 }
-function Kind($b) {
-    if ($b -match '(?i)charmander|pikachu|gengar|ninetales|squirtle|vaporeon|rayquaza|pokemon|bulbasaur|mimikyu') { return 'pokemon' }
-    if ($b -match '(?i)haunt|halloween|pumpkin|witch|ghost|skull|coffin|bat_|cauldron|reaper|dragon') { return 'spooky' }
-    if ($b -match '(?i)ship|construction|vehicle') { return 'vehicle' }
-    return 'building'
-}
+# the same kinds as the hook text and hashtags (this list used to miss Mew, Rowlet, ... - "Would you live in this Mew")
+. (Join-Path $PSScriptRoot 'shorts-meta.ps1')
+function Kind($b) { Get-ShortKind $b }
 # Titles already given (maybe already posted) are kept; new videos get one of several styles - curiosity,
 # challenge, "rate it" and plain searchable ones - picked per video so a run of uploads doesn't all read alike.
 $known = @{}
@@ -58,12 +57,13 @@ function Title($b, $cut, $video) {
     $n = Display $b
     $pool = switch (Kind $b) {
         'pokemon'  { @("I Built a Giant $n in Minecraft!", "Building $n Block by Block", "Can I Build a Perfect $n in Minecraft?", "This $n Build Took Hours (Timelapse)", "Rate My Minecraft $n 1-10") }
-        'spooky'   { @("Building a Spooky $n in Minecraft", "Would You Sleep in This $n?", "This $n Is Perfect for Halloween", "Minecraft $n Build Timelapse", "Rate This Spooky $n 1-10") }
+        'spooky'   { @("Building a Spooky $n in Minecraft", "Would You Sleep in This $($n)?", "This $n Is Perfect for Halloween", "Minecraft $n Build Timelapse", "Rate This Spooky $n 1-10") }
         'vehicle'  { @("I Built a Huge $n in Minecraft!", "How Big Can a Minecraft $n Get?", "Minecraft $n Build Timelapse", "Building a $n Block by Block") }
-        default    { @("Building a $n in Minecraft", "Would You Live in This $n?", "This Minecraft $n Turned Out Amazing", "I Built a $n on a Hill in Minecraft", "Minecraft $n Build Timelapse", "Rate This $n 1-10") }
+        'statue'   { @("I Built a Giant $n in Minecraft!", "Building $n Block by Block", "Rate My Minecraft $n 1-10", "Minecraft $n Build Timelapse") }
+        default    { @("Building a $n in Minecraft", "Would You Live in This $($n)?", "This Minecraft $n Turned Out Amazing", "I Built a $n on a Hill in Minecraft", "Minecraft $n Build Timelapse", "Rate This $n 1-10") }
     }
     $seed = 0; foreach ($ch in "$b$cut".ToCharArray()) { $seed = ($seed * 31 + [int]$ch) % 1000003 }
-    return "$($pool[$seed % $pool.Count]) #minecraft #shorts"
+    return "$($pool[$seed % $pool.Count] -creplace '\ba ([AEIOU])', 'an $1') #minecraft #shorts"   # "an Articuno"
 }
 
 # Graphics helpers.
@@ -77,7 +77,7 @@ function RoundRect($x, $y, $w, $h, $r) {
     $p.CloseFigure(); return $p
 }
 function C($hex, $a = 255) { [System.Drawing.Color]::FromArgb($a, [System.Drawing.ColorTranslator]::FromHtml($hex)) }
-$accent = @{ pokemon = '#FFD23F'; spooky = '#FF7A1A'; vehicle = '#4FC3F7'; building = '#7CDB5A' }
+$accent = @{ pokemon = '#FFD23F'; spooky = '#FF7A1A'; vehicle = '#4FC3F7'; statue = '#FFD23F'; building = '#7CDB5A' }
 
 # How busy a band of a frame is (mean brightness change between neighbouring pixels, on a 108x192 copy):
 # sky and plain ground score low, the build scores high - the title goes where it covers the least build.
