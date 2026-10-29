@@ -152,11 +152,9 @@ $g2 = @(
     # 3: the server banner over the end of the reveal, smaller and left of the right-hand buttons
     "[3:v]format=rgba,scale=880:-1,fade=t=in:st=$(N $bannerFrom):d=0.35:alpha=1[bn]",
     "[v1][bn]overlay=x=40:y=1180:enable='gte(t,$(N $bannerFrom))',format=yuv420p[v]",
-    # audio: 1.2 s of the music from just before its 2 s fade-out under the opening (the very last 1.2 s was
-    # fading to silence, so the hook played almost mute and the song then cut in loud), then the original
-    "[0:a]asplit=2[a0][a1]",
-    "[a0]atrim=start=$(N ([math]::Max(0, $dur - $H - 2))):duration=$(N $H),asetpts=PTS-STARTPTS[ah]",
-    "[ah][a1]concat=n=2:v=0:a=1,aresample=48000,aformat=channel_layouts=stereo[mus]"
+    # audio: ONE continuous song - it starts as the opening cuts to the site, with the level-up chime alone on the
+    # flash-forward (a 1.2 s clip from the song's end used to play first, so the song ended and started again)
+    "[0:a]adelay=delays=$([int]($H * 1000)):all=1,aresample=48000,aformat=channel_layouts=stereo[mus]"
 ) + $sfxF + @("$($mixLabels -join '')amix=inputs=$($mixLabels.Count):normalize=0:duration=first,alimiter=limit=0.95[a]") -join ';'
 & $ff -v error -y -i $In -loop 1 -framerate $rate -t (N $H) -i $last -loop 1 -framerate $rate -t (N $total) -i $hookPng -loop 1 -framerate $rate -t (N $total) -i $bannerPng @sfxIn `
     -filter_complex $g2 -map '[v]' -map '[a]' -c:v libx264 -preset medium -crf 18 -pix_fmt yuv420p -c:a aac -b:a 192k -movflags +faststart $Out
