@@ -4,6 +4,7 @@
 #   recreate-shorts.ps1 -Builds name1,name2,...
 param([Parameter(Mandatory)][string[]] $Builds)
 $ErrorActionPreference = 'Continue'
+$Builds = @($Builds -split ',' | ForEach-Object { $_.Trim() } | Where-Object { $_ })   # (powershell -File passes "a,b" as one string)
 $here = $PSScriptRoot
 $logf = Join-Path $here 'recreate-shorts.log'
 $shorts = 'C:\Users\Graham\Desktop\Shorts'
