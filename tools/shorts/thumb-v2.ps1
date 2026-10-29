@@ -6,7 +6,7 @@
 #                [-Text "OCEAN LINER"] [-TextY 0.12] [-Logo] [-ReviewDir <dir>]
 param([Parameter(Mandatory)][string] $Video, [Parameter(Mandatory)][double] $At, [Parameter(Mandatory)][string] $Out,
       [double] $Zoom = 1.0, [double] $FocusX = 0.5, [double] $FocusY = 0.5, [string] $Text = '', [double] $TextY = 0.1,
-      [double] $TextSize = 120, [switch] $Logo, [string] $ReviewDir = '')
+      [double] $TextSize = 120, [switch] $Logo, [string] $ReviewDir = '', [double] $Shrink = 1.0)
 $ErrorActionPreference = 'Stop'
 Add-Type -AssemblyName System.Drawing
 $bin = Split-Path (Get-ChildItem "$env:LOCALAPPDATA\Microsoft\WinGet\Packages" -Recurse -Filter ffmpeg.exe | Select-Object -First 1).FullName
@@ -20,7 +20,18 @@ if ($At -lt 0) { $At = [double]::Parse((& $fp -v error -show_entries format=dura
 $cw = 1080 / $Zoom; $ch = 1920 / $Zoom
 $cx = [math]::Min([math]::Max(0, 1080 * $FocusX - $cw / 2), 1080 - $cw); $cy = [math]::Min([math]::Max(0, 1920 * $FocusY - $ch / 2), 1920 - $ch)
 $graded = Join-Path $work 'graded.png'
-& $ff -v error -y -ss (N $At) -i $Video -frames:v 1 -vf ("crop={0}:{1}:{2}:{3},scale=1080:1920:flags=lanczos,eq=contrast=1.07:saturation=1.15:gamma=0.98,unsharp=5:5:0.6,vignette=angle=PI/5:mode=forward" -f (N $cw), (N $ch), (N $cx), (N $cy)) -update 1 $graded
+$vf = "crop={0}:{1}:{2}:{3},scale=1080:1920:flags=lanczos,eq=contrast=1.07:saturation=1.15:gamma=0.98,unsharp=5:5:0.6" -f (N $cw), (N $ch), (N $cx), (N $cy)
+if ($Shrink -lt 1) {
+    # a subject that fills the whole height loses its top in square / 3:4 previews: shrink the frame, sit it on the
+    # bottom edge and fill the strip above with a soft blur of the same frame (sky), so the top moves into the middle
+    $sw = [int](1080 * $Shrink / 2) * 2; $sh = [int](1920 * $Shrink / 2) * 2
+    # (the frame's edges are feathered into the blur - a hard edge read as a picture pasted on a picture)
+    $vf += ",split[bg][fg];[bg]boxblur=40:2,eq=brightness=-0.04[bgb];[fg]scale=$($sw):$($sh):flags=lanczos,format=rgba[fgs];" +
+           "color=c=black:s=$($sw)x$($sh),format=gray,drawbox=x=70:y=90:w=$($sw - 140):h=$($sh):color=white:t=fill,boxblur=45:2[mask];" +
+           "[fgs][mask]alphamerge[fga];[bgb][fga]overlay=x=(W-w)/2:y=H-h"
+}
+$vf += ",vignette=angle=PI/5:mode=forward"
+& $ff -v error -y -ss (N $At) -i $Video -frames:v 1 -filter_complex "[0:v]$vf" -update 1 $graded
 if ($LASTEXITCODE -ne 0) { throw "frame grab failed" }
 
 $bmp = [System.Drawing.Bitmap]::FromFile($graded)
