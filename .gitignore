@@ -32,3 +32,4 @@ tools/picture2schem/anthropic-key.txt
 
 tools/shorts/*.log
 tools/shorts/*.pause
+tools/shorts/run-queue.last-style

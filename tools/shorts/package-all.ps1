@@ -33,8 +33,8 @@ foreach ($dir in Get-ChildItem $shorts -Directory | Where-Object { $_.Name -notm
         try { & (Join-Path $PSScriptRoot 'make-thumbnails.ps1') -Only $build | Select-Object -Last 1 } catch { "thumbnail error for ${build}: $_" }
         $titles = @(Import-Csv $csvPath | Where-Object { $_.Video -like "$build-*" })
     }
-    # the orbit cut (C) is what the finals are made from; else whatever this build has
-    $row = ($titles | Where-Object { $_.Video -match '-C-orbit-' } | Select-Object -First 1)
+    # the orbit (C) or snap-cut (D) video is what the finals are made from; else whatever this build has
+    $row = ($titles | Where-Object { $_.Video -match '-(C-orbit|D-cuts)-' } | Sort-Object { $_.Video -match '-s\d+\.mp4$' } | Select-Object -First 1)
     if (-not $row) { $row = $titles | Select-Object -First 1 }
     $thumb = if ($row) { $row.Video -replace '\.mp4$', '.jpeg' } else { '' }
     if ($thumb -and -not (Test-Path -LiteralPath (Join-Path $kit $thumb))) { $thumb = "(missing) $thumb" }

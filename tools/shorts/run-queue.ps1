@@ -90,15 +90,20 @@ while ($true) {
     if ($prog) { $common += " progress=$prog" }
     if ($wish -match '(?i)snow|frozen|ice') { $common += ' dusk=0' }     # sunset + shader snow fog looked orange
     $music = Songs $name
-    Say "  render: $common music=$music"
+    # the owner likes both cameras: takes alternate between the smooth orbit and snap cuts (a new angle every ~4 s)
+    $styleFile = Join-Path $here 'run-queue.last-style'
+    $style = if ((Get-Content $styleFile -ErrorAction SilentlyContinue) -eq 'orbit') { 'cuts' } else { 'orbit' }
+    $cutName = @{ orbit = 'C-orbit'; cuts = 'D-cuts' }[$style]
+    Say "  render ($style): $common music=$music"
     $renderStart = Get-Date
-    try { & (Join-Path $here 'render-take.ps1') -Build $name -Common $common -Jobs "style=orbit music=$music" 2>&1 | ForEach-Object { Say "    $_" } } catch { Say "    render error: $_" }
-    $raw = "C:\Users\Graham\Desktop\Shorts\$name\$name-C-orbit-$music.mp4"
+    try { & (Join-Path $here 'render-take.ps1') -Build $name -Common $common -Jobs "style=$style music=$music" 2>&1 | ForEach-Object { Say "    $_" } } catch { Say "    render error: $_" }
+    $raw = "C:\Users\Graham\Desktop\Shorts\$name\$name-$cutName-$music.mp4"
+    if (Test-Path -LiteralPath $raw) { Set-Content $styleFile $style }
     # only a video rendered (and checked) just now - a rebuild's earlier take of the same name must not be finished
     if ((Test-Path -LiteralPath $raw) -and (Get-Item -LiteralPath $raw).LastWriteTime -gt $renderStart) {
         # a stopping error in a child script used to end this whole loop (it died after Pinecrest's thumbnail)
         try { & (Join-Path $here 'make-thumbnails.ps1') -Only $name 2>&1 | Select-Object -Last 1 | ForEach-Object { Say "    $_" } } catch { Say "    thumbnail error: $_" }
-        $row = Import-Csv 'C:\Users\Graham\Desktop\Shorts Thumbnails and Titles\titles.csv' | Where-Object { $_.Video -eq "$name-C-orbit-$music.mp4" } | Select-Object -First 1
+        $row = Import-Csv 'C:\Users\Graham\Desktop\Shorts Thumbnails and Titles\titles.csv' | Where-Object { $_.Video -eq "$name-$cutName-$music.mp4" } | Select-Object -First 1
         # hook opening + hook text + server banner + seamless loop (replaces the separate 4.6 s end card)
         $final = "C:\Users\Graham\Desktop\Shorts\$name\$name - final.mp4"
         try { & (Join-Path $here 'finish-short.ps1') -In $raw -Out $final -Build $name -Display "$($row.Build)" -Title "$($row.Title)" 2>&1 | ForEach-Object { Say "    $_" } } catch { Say "    finish error: $_" }
