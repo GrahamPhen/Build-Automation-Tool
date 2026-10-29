@@ -60,10 +60,12 @@ function Title($b, $cut, $video) {
         'spooky'   { @("Building a Spooky $n in Minecraft", "Would You Sleep in This $($n)?", "This $n Is Perfect for Halloween", "Minecraft $n Build Timelapse", "Rate This Spooky $n 1-10") }
         'vehicle'  { @("I Built a Huge $n in Minecraft!", "How Big Can a Minecraft $n Get?", "Minecraft $n Build Timelapse", "Building a $n Block by Block") }
         'statue'   { @("I Built a Giant $n in Minecraft!", "Building $n Block by Block", "Rate My Minecraft $n 1-10", "Minecraft $n Build Timelapse") }
-        default    { @("Building a $n in Minecraft", "Would You Live in This $($n)?", "This Minecraft $n Turned Out Amazing", "I Built a $n on a Hill in Minecraft", "Minecraft $n Build Timelapse", "Rate This $n 1-10") }
+        default    { if (Test-ShortWinter $b) { @("Cozy Minecraft Winter $n Idea", "Building a Cozy $n in Minecraft", "Minecraft Snowy $n Build Timelapse", "Would You Survive Winter in This $($n)?") } else {
+                     @("Minecraft $n Build Idea", "Easy Minecraft $n (Survival Build)", "Building a $n in Minecraft", "Would You Live in This $($n)?", "This Minecraft $n Turned Out Amazing", "I Built a $n on a Hill in Minecraft", "Minecraft $n Build Timelapse", "Rate This $n 1-10") } }
     }
     $seed = 0; foreach ($ch in "$b$cut".ToCharArray()) { $seed = ($seed * 31 + [int]$ch) % 1000003 }
-    return "$($pool[$seed % $pool.Count] -creplace '\ba ([AEIOU])', 'an $1') #minecraft #shorts"   # "an Articuno"
+    # one hashtag at most in the title (the rest are in the description) - "an Articuno"
+    return "$($pool[$seed % $pool.Count] -creplace '\ba ([AEIOU])', 'an $1') #minecraft"
 }
 
 # Graphics helpers.

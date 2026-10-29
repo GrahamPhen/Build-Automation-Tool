@@ -40,7 +40,7 @@ for ($k = 0; $k -lt $Jobs.Count; $k++) {
     $j = $Jobs[$k]
     $style = if ($j -match 'style=(\w+)') { $Matches[1] } else { 'orbit' }
     $music = if ($j -match 'music=(\S+)') { $Matches[1] } else { 'none' }
-    $letter = @{ cinematic = 'B'; orbit = 'C'; tripod = 'A' }[$style]
+    $letter = @{ cinematic = 'B'; orbit = 'C'; tripod = 'A'; cuts = 'D' }[$style]
     $suffix = if ($j -match 'timeOfDay=(\d+)') { "-t$($Matches[1])" } else { '' }
     if ($j -match 'seconds=(\d+)') { $suffix += "-s$($Matches[1])" }
     $out = "$Build-$letter-$style-$music$suffix.mp4"
@@ -91,10 +91,12 @@ foreach ($o in $outs) {
     $dur = [math]::Round($i.ExtendedProperty('System.Media.Duration') / 1e7, 1)
     $wh = "$($i.ExtendedProperty('System.Video.FrameWidth'))x$($i.ExtendedProperty('System.Video.FrameHeight'))"
     $ab = $i.ExtendedProperty('System.Audio.EncodingBitrate')
-    $ok = ($dur -ge 25 -and $dur -le 65 -and $wh -eq '1080x1920' -and $ab)
+    $ok = ($dur -ge 20 -and $dur -le 65 -and $wh -eq '1080x1920' -and $ab)
     Say ("{0}: {1}s {2} audio={3} {4}" -f $o, $dur, $wh, $ab, $(if ($ok) { 'OK' } else { 'CHECK' }))
     if (-not $ok) { Say "  $o failed the check - not copied to the Shorts folder"; continue }
     Copy-Item $p $dest -Force
+    $tm = [IO.Path]::ChangeExtension($p, '.timing.txt')                   # where it builds / cuts, for finish-short
+    if (Test-Path -LiteralPath $tm) { Copy-Item -LiteralPath $tm $dest -Force }
     $rest = $o.Substring($Build.Length + 1) -replace '\.mp4$', ''     # B-cinematic-royalty[-t9000]
     $variant = ($rest -split '-')[0..1] -join '-'
     $mus = $rest.Substring($variant.Length + 1)

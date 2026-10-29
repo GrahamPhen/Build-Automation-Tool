@@ -509,6 +509,10 @@ final class RenderDirector {
                         double d0, double d1, int[] lift) { }
 
     private static Move lastMove;
+    // output seconds where the build runs and where the shots cut - written beside the video for finish-short
+    // (building sounds under the music, a whoosh on each cut)
+    private static double buildOut0 = -1, buildOut1 = -1;
+    private static final List<Double> cutTimes = new java.util.ArrayList<>();
 
     private static void putMove(Move m) throws Exception {
         int steps = m.lift.length - 1;
@@ -538,6 +542,7 @@ final class RenderDirector {
         int B = (int) Math.min(end, Math.max(T + 20, bLog - tickShift));
         lastMove = null;
         guardBlocked = 0;
+        buildOut0 = -1; buildOut1 = -1; cutTimes.clear();
         int D = B - T, H = Math.min(T, 300);
         double cx = num("centerX", 0) + 0.5, cz = num("centerZ", 0) + 0.5, base = num("baseY", 64);
         double w = num("width", 60), dp = num("depth", 60), h = num("height", 40);
@@ -627,21 +632,56 @@ final class RenderDirector {
                         front - 50, front + 12, -4, 6, frontDist * 0.95, frontDist * 1.05);
                 speed(B, end, 10);
             }
+            case "cuts" -> {
+                // Snap cuts (test against the orbit): a new angle about every 4 s while it builds, each with a
+                // slight push-in, then the same reveal as the orbit's last 80 degrees, ending on the front.
+                time = 9000;
+                double sc = Math.max(0.4, Math.min(1.5, num("seconds", 34) / 60));
+                fixed(0, ground, front - 50, 38, frontDist * 1.35);
+                speed(0, H, 1.5 * sc);
+                speed(H, T, 7 * sc);
+                buildOut0 = outTicks / 20.0;
+                double[][] shots = {                                      // yaw offset, pitch, distance factor
+                        {-55, 30, 1.1}, {45, 18, 0.9}, {-150, 34, 1.0}, {110, 14, 0.85}, {-20, 24, 1.05}, {60, 12, 0.95},
+                        {-100, 28, 0.9}, {15, 18, 1.0}};
+                double buildSec = 41.5 * sc;
+                int n = Math.max(2, Math.min(shots.length, (int) Math.round(buildSec / 4)));
+                for (int i = 0; i < n; i++) {
+                    int a = T + (int) ((long) D * i / n), b = T + (int) ((long) D * (i + 1) / n);
+                    if (i > 0) cutTimes.add(outTicks / 20.0);
+                    double[] s = shots[i];
+                    lastMove = null;                                          // a hard cut, not a join
+                    Vector3d tgt = i % 2 == 0 ? low : mid;
+                    move(a, b, tgt, mid, front + s[0], front + s[0] + 10, s[1], s[1] - 3, frontDist * s[2], frontDist * s[2] * 0.92);
+                    speedProgress(a, b, buildSec / n);
+                }
+                buildOut1 = outTicks / 20.0;
+                cutTimes.add(outTicks / 20.0);
+                lastMove = null;
+                move(B, end, mid, mid, front - 70, front + 10, 16, 6, frontDist, frontDist * 0.97);
+                speed(B, end, 10 * Math.max(0.75, sc));
+                boolean intoSun = Math.cos(Math.toRadians(front + 10 - 90)) > 0.4;
+                if (intoSun) time = 3000;
+                if (num("dusk", 1) > 0 && !intoSun) duskFrom = B;
+            }
             default -> {
                 // One continuous orbit, framed on the build, rising and tightening as it grows - and ENDING ON
                 // THE FRONT. (The old angles ran front-140 -> front+200, so every orbit finished on the back.)
                 time = 9000;                                             // bright morning
                 front -= 190;
-                double sc = Math.max(0.5, Math.min(1.5, num("seconds", 60) / 60));   // length variants (45 s test)
+                // ~36 s (was 60): viewers left at ~22 s of the 43-65 s Shorts (channel analytics, Oct 2026)
+                double sc = Math.max(0.4, Math.min(1.5, num("seconds", 34) / 60));
                 // Site prep 8.5 s (was 12: ten seconds of distant digging dragged); the build gets the time.
                 move(0, T, ground, low, front - 140, front - 60, 38, 30, frontDist * 1.4, frontDist * 1.05);
                 speed(0, H, 1.5 * sc);
                 speed(H, T, 7 * sc);
+                buildOut0 = outTicks / 20.0;
                 // No close-up of the character in the orbit any more: it played 1.5 s at real speed and the
                 // builder was usually standing between clicks - it read as a freeze (castle v2 at 29 s). One
                 // unbroken orbit, starting ~15% closer than before so the walls read while they go up.
                 move(T, B, low, mid, front - 60, front + 120, 30, 16, frontDist * 1.05, frontDist);
                 speedProgress(T, B, 41.5 * sc);
+                buildOut1 = outTicks / 20.0;
                 // (every camera position, this reveal included, is lifted clear of terrain by move()/fixed())
                 move(B, end, mid, mid, front + 120, front + 200, 16, 6, frontDist, frontDist * 0.97);   // starts where the build move ends (14 popped 2 degrees)
                 speed(B, end, 10 * Math.max(0.75, sc));
@@ -711,6 +751,15 @@ final class RenderDirector {
         Path folder = ((Path) fb.getMethod("getReplayFolder").invoke(null)).resolveSibling("exports");
         Files.createDirectories(folder);
         finalOutput = folder.resolve(job.getOrDefault("output", "build-short-" + style + ".mp4"));
+        try {
+            StringBuilder tm = new StringBuilder();
+            if (buildOut0 >= 0) tm.append(String.format(java.util.Locale.ROOT, "build=%.2f,%.2f%n", buildOut0, buildOut1));
+            if (!cutTimes.isEmpty()) tm.append("cuts=").append(cutTimes.stream().map(c -> String.format(java.util.Locale.ROOT, "%.2f", c))
+                    .collect(java.util.stream.Collectors.joining(","))).append(System.lineSeparator());
+            Files.writeString(folder.resolve(finalOutput.getFileName().toString().replace(".mp4", ".timing.txt")), tm.toString());
+        } catch (Exception e) {
+            StartBuildMod.LOGGER.warn("[StartBuild] render: could not write the timing file: {}", e.toString());
+        }
         pendingMusic = music;
         musicStart = num("musicStart", -1);                           // -1 = where the song gets going
         output = music == null ? finalOutput

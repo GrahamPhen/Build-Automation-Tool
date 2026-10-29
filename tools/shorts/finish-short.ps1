@@ -23,8 +23,10 @@ if (Test-Path $hf) { (Get-Content $hf -Raw | ConvertFrom-Json).PSObject.Properti
 # Default hooks rotate per build (the same "Rate this X 1-10" on every video would go stale); hooks.json overrides.
 . (Join-Path $PSScriptRoot 'shorts-meta.ps1')
 $kind = Get-ShortKind $Build
+# Search words in the on-screen hook too (YouTube reads the text in the first frames): "Minecraft ... idea".
 $pool = @{
-    building = @("Rate this $Display 1-10", "Would you live in this $($Display)?", "Watch this $Display build itself", "Can I build a $Display by hand?")
+    building = if (Test-ShortWinter $Build) { @("Cozy Minecraft winter $Display", "Would you survive winter in this $($Display)?", "Minecraft $Display idea for winter") }
+               else { @("Rate this Minecraft $Display 1-10", "Would you live in this $($Display)?", "Minecraft $Display build idea", "Can I build a $Display by hand?") }
     pokemon  = @("Rate this $Display 1-10", "Can I build a giant $Display?", "Watch $Display come to life", "Rate my $Display build 1-10")
     spooky   = @("Rate this spooky $Display 1-10", "Would you sleep in this $($Display)?", "Watch this $Display rise", "Too spooky? Rate it 1-10")
     vehicle  = @("Can I build a giant $Display?", "How big can a Minecraft $Display get?", "Rate this $Display 1-10", "Watch this $Display build itself")
@@ -42,7 +44,8 @@ function C($hex, $a = 255) { [System.Drawing.Color]::FromArgb($a, [System.Drawin
 function Canvas($w, $h) { $b = New-Object System.Drawing.Bitmap $w, $h; $g = [System.Drawing.Graphics]::FromImage($b); $g.SmoothingMode = 'AntiAlias'; $g.TextRenderingHint = 'AntiAlias'; $g.Clear([System.Drawing.Color]::Transparent); return @($b, $g) }
 function RoundRect($x, $y, $w, $h, $r) { $p = New-Object System.Drawing.Drawing2D.GraphicsPath; $p.AddArc($x, $y, 2 * $r, 2 * $r, 180, 90); $p.AddArc($x + $w - 2 * $r, $y, 2 * $r, 2 * $r, 270, 90); $p.AddArc($x + $w - 2 * $r, $y + $h - 2 * $r, 2 * $r, 2 * $r, 0, 90); $p.AddArc($x, $y + $h - 2 * $r, 2 * $r, 2 * $r, 90, 90); $p.CloseFigure(); return $p }
 
-# hook: up to 3 balanced lines, as big as fits 960 px wide
+# hook: up to 3 balanced lines, as big as fits 880 px wide - clear of the like/comment buttons down the right
+# side (and of a TV's Shorts panel), with a thicker outline so it reads from across a room
 $bmp, $g = Canvas 1080 520
 $sf = New-Object System.Drawing.StringFormat; $sf.Alignment = 'Center'; $sf.LineAlignment = 'Center'
 # never wrap or clip a line: 'GRAND OCEAN LINER?' just overflowed, wrapped onto a hidden row and vanished
@@ -57,17 +60,18 @@ if ($words.Count -ge 7) {
         $options += , @(($words[0..($a - 1)] -join ' '), ($words[$a..($b - 1)] -join ' '), ($words[$b..($words.Count - 1)] -join ' ')) } }
 }
 foreach ($lines in $options) {
-    for ($size = 150; $size -ge 50; $size -= 6) {
+    for ($size = 170; $size -ge 50; $size -= 6) {
         $wmax = 0
         foreach ($ln in $lines) { $q = New-Object System.Drawing.Drawing2D.GraphicsPath; $q.AddString($ln, $black, 0, $size, (New-Object System.Drawing.PointF 0, 0), [System.Drawing.StringFormat]::GenericTypographic); $wmax = [math]::Max($wmax, $q.GetBounds().Width) }
-        if ($wmax -le 960 -and $size * 1.08 * $lines.Count -le 500) { break }
+        if ($wmax -le 880 -and $size * 1.08 * $lines.Count -le 500) { break }
     }
     if ($size -gt $bestSize) { $bestSize = $size; $best = $lines }
 }
 $path = New-Object System.Drawing.Drawing2D.GraphicsPath
 $lh = $bestSize * 1.08; $y0 = (520 - $lh * $best.Count) / 2
 for ($k = 0; $k -lt $best.Count; $k++) { $path.AddString($best[$k], $black, 0, $bestSize, (New-Object System.Drawing.RectangleF 0, ($y0 + $k * $lh), 1080, $lh), $sf) }
-$g.DrawPath((New-Object System.Drawing.Pen ([System.Drawing.Color]::Black), 24), $path)
+$pen = New-Object System.Drawing.Pen ([System.Drawing.Color]::Black), 30; $pen.LineJoin = 'Round'
+$g.DrawPath($pen, $path)
 $g.FillPath([System.Drawing.Brushes]::White, $path)
 $hookPng = Join-Path $work 'hook.png'; $bmp.Save($hookPng, [System.Drawing.Imaging.ImageFormat]::Png); $g.Dispose(); $bmp.Dispose()
 
@@ -91,6 +95,51 @@ $last = Join-Path $work 'last.png'
 function N($x) { ([double]$x).ToString('0.###', $inv) }
 $total = $dur + $H
 $bannerFrom = $total - 2.2
+
+# --- sound effects (Minecraft's own sounds, from the launcher's asset store): a level-up chime on the very first
+# frame, quiet block-placing under the music while it builds (pure music let viewers zone out), and a sweep on
+# each camera cut. Where it builds / cuts comes from the renderer's "<video>.timing.txt".
+$timing = @{}
+$tf = [IO.Path]::ChangeExtension($In, '.timing.txt')
+if (Test-Path -LiteralPath $tf) { foreach ($l in Get-Content -LiteralPath $tf) { if ($l -match '^(\w+)=(.+)$') { $timing[$Matches[1]] = @($Matches[2] -split ',' | ForEach-Object { [double]::Parse($_, $inv) }) } } }
+if (-not $timing.build) { $timing.build = @(($dur * 0.14), ($dur - 8)) }                 # (older renders: the orbit's shape)
+$assetsDir = "$env:APPDATA\PrismLauncher\assets"
+$index = Get-ChildItem "$assetsDir\indexes" -Filter *.json | Sort-Object LastWriteTime -Descending | Select-Object -First 1
+$objects = (Get-Content $index.FullName -Raw | ConvertFrom-Json).objects
+function Sfx($name) {
+    $o = $objects."minecraft/sounds/$name.ogg"; if (-not $o) { return $null }
+    $src = Join-Path "$assetsDir\objects" ($o.hash.Substring(0, 2) + '\' + $o.hash)
+    $dst = Join-Path $work (($name -replace '/', '_') + '.ogg'); Copy-Item -LiteralPath $src $dst; return $dst
+}
+# a 2.4 s loop of hand-placed blocks (wood, stone, grass at uneven gaps and loudness), looped under the build
+$hits = @(@('dig/wood1', 0, 1.0), @('dig/stone2', 260, 0.8), @('dig/wood3', 470, 0.9), @('dig/grass1', 790, 0.7), @('dig/stone4', 1010, 0.9),
+          @('dig/wood2', 1330, 1.0), @('dig/stone1', 1560, 0.75), @('dig/wood4', 1900, 0.9))
+$hitIn = @(); $hitF = @(); $k = 0
+foreach ($hit in $hits) { $p = Sfx $hit[0]; if ($p) { $hitIn += '-i', $p; $hitF += "[$k]aresample=48000,aformat=channel_layouts=stereo,adelay=delays=$($hit[1]):all=1,volume=$($hit[2])[h$k]"; $k++ } }   # ($h would be $H, the hook length)
+$blocksWav = $null
+if ($k -gt 2) {
+    $blocksWav = Join-Path $work 'blocks.wav'
+    $mixIn = (0..($k - 1) | ForEach-Object { "[h$_]" }) -join ''
+    & $ff -v error -y @hitIn -filter_complex (($hitF -join ';') + ";$($mixIn)amix=inputs=$($k):normalize=0,apad=whole_dur=2.4,atrim=0:2.4") $blocksWav
+    if ($LASTEXITCODE -ne 0) { $blocksWav = $null }
+}
+$chime = Sfx 'random/levelup'
+$sweep = Sfx 'entity/player/attack/sweep1'
+$sfxIn = @(); $sfxF = @(); $mixLabels = @('[mus]'); $n = 4
+if ($blocksWav) {
+    $b0 = $timing.build[0] + $H; $b1 = $timing.build[1] + $H; $len = [math]::Max(1, $b1 - $b0)
+    $sfxIn += '-stream_loop', '-1', '-i', $blocksWav
+    $sfxF += "[$($n):a]atrim=duration=$(N $len),afade=t=in:d=0.6,afade=t=out:st=$(N ($len - 0.8)):d=0.8,volume=0.4,adelay=delays=$([int]($b0 * 1000)):all=1[blk]"
+    $mixLabels += '[blk]'; $n++
+}
+if ($chime) { $sfxIn += '-i', $chime; $sfxF += "[$($n):a]aresample=48000,aformat=channel_layouts=stereo,volume=0.5[chm]"; $mixLabels += '[chm]'; $n++ }
+if ($sweep -and $timing.cuts) {
+    $sfxIn += '-i', $sweep
+    $c = $timing.cuts.Count
+    $sfxF += "[$($n):a]aresample=48000,aformat=channel_layouts=stereo,volume=0.35,asplit=$c" + ((0..($c - 1) | ForEach-Object { "[sw$_]" }) -join '')
+    for ($i = 0; $i -lt $c; $i++) { $sfxF += "[sw$i]adelay=delays=$([int](([math]::Max(0, $timing.cuts[$i] + $H - 0.12)) * 1000)):all=1[swd$i]"; $mixLabels += "[swd$i]" }
+    $n++
+}
 $g2 = @(
     # 1+4: the final frame held, slow push-in that ENDS at zoom 1 is not wanted - it STARTS at 1 so frame 0 == last frame
     "[1:v]scale=2160:3840,zoompan=z='1+0.035*on/$([math]::Ceiling($H * 60))':x='iw/2-(iw/zoom/2)':y='ih/2-(ih/zoom/2)':d=1:s=1080x1920:fps=$rate,trim=duration=$(N $H),setsar=1,format=yuv420p[hookv]",
@@ -98,17 +147,18 @@ $g2 = @(
     "[hookv][mainv]concat=n=2:v=1:a=0[cat]",
     # 2: hook text over the opening, fading out
     "[2:v]format=rgba,fade=t=out:st=2.3:d=0.4:alpha=1[hk]",
-    "[cat][hk]overlay=x=0:y=150:enable='lt(t,2.7)'[v1]",
-    # 3: the server banner over the end of the reveal
-    "[3:v]format=rgba,fade=t=in:st=$(N $bannerFrom):d=0.35:alpha=1[bn]",
-    "[v1][bn]overlay=x=(W-w)/2+4:y=1270:enable='gte(t,$(N $bannerFrom))',format=yuv420p[v]",
+    # (above the build but below the top ~12%, and off the right edge: those sit under YouTube's buttons)
+    "[cat][hk]overlay=x=-30:y=260:enable='lt(t,2.7)'[v1]",
+    # 3: the server banner over the end of the reveal, smaller and left of the right-hand buttons
+    "[3:v]format=rgba,scale=880:-1,fade=t=in:st=$(N $bannerFrom):d=0.35:alpha=1[bn]",
+    "[v1][bn]overlay=x=40:y=1180:enable='gte(t,$(N $bannerFrom))',format=yuv420p[v]",
     # audio: 1.2 s of the music from just before its 2 s fade-out under the opening (the very last 1.2 s was
     # fading to silence, so the hook played almost mute and the song then cut in loud), then the original
     "[0:a]asplit=2[a0][a1]",
     "[a0]atrim=start=$(N ([math]::Max(0, $dur - $H - 2))):duration=$(N $H),asetpts=PTS-STARTPTS[ah]",
-    "[ah][a1]concat=n=2:v=0:a=1[a]"
-) -join ';'
-& $ff -v error -y -i $In -loop 1 -framerate $rate -t (N $H) -i $last -loop 1 -framerate $rate -t (N $total) -i $hookPng -loop 1 -framerate $rate -t (N $total) -i $bannerPng `
+    "[ah][a1]concat=n=2:v=0:a=1,aresample=48000,aformat=channel_layouts=stereo[mus]"
+) + $sfxF + @("$($mixLabels -join '')amix=inputs=$($mixLabels.Count):normalize=0:duration=first,alimiter=limit=0.95[a]") -join ';'
+& $ff -v error -y -i $In -loop 1 -framerate $rate -t (N $H) -i $last -loop 1 -framerate $rate -t (N $total) -i $hookPng -loop 1 -framerate $rate -t (N $total) -i $bannerPng @sfxIn `
     -filter_complex $g2 -map '[v]' -map '[a]' -c:v libx264 -preset medium -crf 18 -pix_fmt yuv420p -c:a aac -b:a 192k -movflags +faststart $Out
 if ($LASTEXITCODE -ne 0) { throw "ffmpeg failed on $In" }
 
