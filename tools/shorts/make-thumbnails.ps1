@@ -70,8 +70,8 @@ function Title($b, $cut, $video) {
                        "Turning a Wild Hill Into a $n in Minecraft", "From an Empty Hill to This $n (Minecraft Timelapse)") } }
     }
     $seed = 0; foreach ($ch in "$b$cut".ToCharArray()) { $seed = ($seed * 31 + [int]$ch) % 1000003 }
-    # one hashtag at most in the title (the rest are in the description) - "an Articuno"
-    return "$($pool[$seed % $pool.Count] -creplace '\ba ([AEIOU])', 'an $1') #minecraft"
+    # the viral title: claim + emoji, no hashtag (they are in the description) - "an Articuno"
+    return "$($pool[$seed % $pool.Count] -creplace '\ba ([AEIOU])', 'an $1') $(Get-ShortEmoji $b)"
 }
 
 # Graphics helpers.

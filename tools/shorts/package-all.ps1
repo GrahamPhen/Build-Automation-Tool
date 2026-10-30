@@ -41,8 +41,10 @@ foreach ($dir in Get-ChildItem $shorts -Directory | Where-Object { $_.Name -notm
     if ($thumb -and -not (Test-Path -LiteralPath (Join-Path $kit $thumb))) { $thumb = "(missing) $thumb" }
     $desc = Get-ShortDescription $build "$($row.Build)" "$($row.Title)"
     Set-Content -LiteralPath (Join-Path $f.DirectoryName "$build - description.txt") -Value $desc -Encoding utf8
-    $rows += [pscustomobject]@{ build = $(if ($row.Build) { $row.Build } else { $build }); video = $f.FullName; thumb = $thumb
-        title = $(if ($row.Title) { $row.Title } else { ($desc -split "`n")[0].Trim() }); description = $desc.Trim() }
+    $disp = $(if ($row.Build) { $row.Build } else { $build })
+    $rows += [pscustomobject]@{ build = $disp; video = $f.FullName; thumb = $thumb
+        title = $(if ($row.Title) { $row.Title } else { ($desc -split "`n")[0].Trim() }); description = $desc.Trim()
+        seo = (Get-ShortSeoTitle $build $disp); reel = (Get-ShortReelHook $build $disp) }
 }
 $json = Join-Path $env:TEMP 'shorts-upload.json'
 $missingOld = @($olderRows | Where-Object { $_.thumb -like '(missing)*' } | ForEach-Object { ($_.thumb -replace '^\(missing\) ', '') -replace '-[ABC]-.*$', '' } | Sort-Object -Unique)

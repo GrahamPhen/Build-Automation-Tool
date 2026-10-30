@@ -8,6 +8,7 @@ if (!Array.isArray(rows)) rows = [rows];
 const older = r => /\(older edit\)$/.test(r.build) ? 1 : 0;           // the current-format finals first
 rows.sort((a, b) => older(a) - older(b) || a.build.localeCompare(b.build));
 const run = (text, o = {}) => new TextRun({ text, font: 'Calibri', size: o.size || 21, bold: !!o.bold, color: o.color });
+// (the title row used to say just "Title"; current Shorts now carry three texts: viral title, SEO title, reel hook)
 const label = (k, v) => new Paragraph({ spacing: { after: 40 }, children: [run(k + ': ', { bold: true }), run(v)] });
 
 const children = [
@@ -20,7 +21,9 @@ for (const r of rows) {
   children.push(new Paragraph({ heading: HeadingLevel.HEADING_2, spacing: { before: 280 }, children: [run(r.build, { size: 26, bold: true })] }));
   children.push(label('Video', r.video));
   children.push(label('Thumbnail', r.thumb || '(none)'));
-  children.push(label('Title', r.title));
+  children.push(label(r.seo ? 'Viral title' : 'Title', r.title));
+  if (r.seo) children.push(label('SEO title', r.seo));
+  if (r.reel) children.push(label('Reel / post hook', r.reel));
   children.push(new Paragraph({ spacing: { before: 80, after: 40 }, children: [run('Description:', { bold: true })] }));
   for (const line of r.description.split(/\r?\n/)) children.push(new Paragraph({ children: [run(line, { size: 20 })] }));
 }

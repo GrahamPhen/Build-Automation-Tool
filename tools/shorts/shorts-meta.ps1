@@ -57,6 +57,47 @@ function Get-NextHouseSong {
     return $song
 }
 
+# --- The three texts per Short (owner's format, 2026-10-30): a viral title (claim + emoji, no hashtag), a plain SEO
+# title, and a reel / post hook (question or call to action + emoji). Only true claims: these are build timelapses,
+# not tutorials, and nothing works / opens / lights up unless the video shows it.
+function E([int[]] $cp) { ($cp | ForEach-Object { [char]::ConvertFromUtf32($_) }) -join '' }   # (emoji without a UTF-8 script file)
+function Get-ShortEmoji([string] $Build) {
+    switch (Get-ShortKind $Build) {
+        'pokemon' { E 0x26A1 } 'spooky' { E 0x1F383, 0x1F47B } 'statue' { E 0x1F5FF } 'vehicle' { E 0x1F6A2 }
+        default {
+            if (Test-ShortWinter $Build) { E 0x2744, 0x1F3E1 }
+            elseif ($Build -match '(?i)castle|tower|spire|chapel|church|sanctuary|portal') { E 0x1F3F0, 0x2728 }
+            elseif ($Build -match '(?i)windmill|mill|barn|farm') { E 0x1F33E }
+            else { E 0x1F3E1, 0x2728 }
+        }
+    }
+}
+function Get-ShortSeoTitle([string] $Build, [string] $Display) {
+    $n = $Display
+    switch (Get-ShortKind $Build) {
+        'pokemon' { "Minecraft Giant $n Statue Build Timelapse (Pokemon Build)" }
+        'spooky'  { "Minecraft $n Build Timelapse (Spooky Halloween Build Idea)" }
+        'statue'  { "Minecraft Giant $n Statue Build Timelapse" }
+        'vehicle' { "Minecraft $n Build Timelapse (Giant Build Idea)" }
+        default {
+            if (Test-ShortWinter $Build) { "Minecraft $n Build Timelapse (Cozy Winter Build Idea)" }
+            elseif ($Build -match '(?i)castle|tower|spire|chapel|church|sanctuary|portal') { "Minecraft $n Build Timelapse (Medieval Build Idea)" }
+            elseif ($Build -match '(?i)windmill|mill|barn|farm') { "Minecraft $n Build Timelapse (Survival Farm Build Idea)" }
+            else { "Minecraft $n Build Timelapse (Survival House Idea)" }
+        }
+    }
+}
+function Get-ShortReelHook([string] $Build, [string] $Display) {
+    $n = $Display; $down = E 0x1F447; $blk = Get-ShortBlocks $Build
+    $pool = switch (Get-ShortKind $Build) {
+        'pokemon' { @("Which Pokemon should I build next in Minecraft? $(E 0x26A1) Comment below! $down", "Rate this giant $n 1-10 in the comments! $(E 0x26A1)$down") }
+        'spooky'  { @("Would you spend one night in this $($n)? $(E 0x1F47B) Rate it 1-10! $down", "Too spooky to live in? $(E 0x1F383) Rate this $n 1-10! $down") }
+        default   { @("Would you live in this $($n)? $(E 0x1F3E1) Rate it 1-10! $down", "Tag the friend you'd build this $n with! $(E 0x1F3E1)$down",
+                      $(if ($blk) { "$blk blocks, all placed by hand $(E 0x1F9F1) Rate it 1-10! $down" } else { "Every block placed by hand $(E 0x1F9F1) Rate it 1-10! $down" })) }
+    }
+    return $pool[(Get-ShortSeed $Build) % $pool.Count]
+}
+
 function Get-ShortSeed([string] $Build) { $s = 0; foreach ($ch in $Build.ToCharArray()) { $s = ($s * 31 + [int]$ch) % 1000003 }; $s }
 
 function Get-ShortBucket([string] $Build) {
