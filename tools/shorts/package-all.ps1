@@ -17,7 +17,8 @@ foreach ($dir in Get-ChildItem $shorts -Directory | Where-Object { $_.Name -notm
     $titles = @(Import-Csv $csvPath | Where-Object { $_.Video -like "$build-*" })
     if (-not $f) {
         # older format (before the hook/banner finals): each B/C cut, the with-outro copy being the one to post
-        foreach ($v in Get-ChildItem -LiteralPath $dir.FullName -Filter "$build-*.mp4") {
+        # (never a video with Runaway in it - copyright, owner 2026-10-29)
+        foreach ($v in Get-ChildItem -LiteralPath $dir.FullName -Filter "$build-*.mp4" | Where-Object { $_.Name -notmatch '(?i)runaway' }) {
             $post = Join-Path $dir.FullName "with-outro\$($v.Name)"
             if (-not (Test-Path -LiteralPath $post)) { $post = $v.FullName }
             $row = $titles | Where-Object { $_.Video -eq $v.Name } | Select-Object -First 1

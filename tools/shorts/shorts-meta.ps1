@@ -46,6 +46,17 @@ function Get-ShortNoun([string] $Build) {
     }
 }
 
+# Songs for houses and other everyday builds: rotated so neighbouring Shorts don't share one. NEVER runaway_slowed
+# (copyright - owner, 2026-10-29).
+$HouseSongs = @('royalty', 'aria_math', 'taswell', 'biome_fest')
+function Get-NextHouseSong {
+    $f = Join-Path $PSScriptRoot 'run-queue.last-song'
+    $last = Get-Content $f -ErrorAction SilentlyContinue
+    $song = $HouseSongs[([array]::IndexOf($HouseSongs, "$last") + 1) % $HouseSongs.Count]
+    Set-Content $f $song
+    return $song
+}
+
 function Get-ShortSeed([string] $Build) { $s = 0; foreach ($ch in $Build.ToCharArray()) { $s = ($s * 31 + [int]$ch) % 1000003 }; $s }
 
 function Get-ShortBucket([string] $Build) {

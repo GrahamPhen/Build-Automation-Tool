@@ -95,7 +95,9 @@ $dur = [double]::Parse((& $fp -v error -show_entries format=duration -of csv=p=0
 $rate = (& $fp -v error -select_streams v:0 -show_entries stream=r_frame_rate -of csv=p=0 $In).Trim()
 $H = 1.2
 $last = Join-Path $work 'last.png'
-& $ff -v error -y -sseof -0.05 -i $In -frames:v 1 -update 1 $last
+# (the last 0.5 s, keeping the final frame: after a music swap the audio can end a hair after the picture, and a
+# 0.05 s seek from the end then found no video frame at all)
+& $ff -v error -y -sseof -0.5 -i $In -an -update 1 $last
 function N($x) { ([double]$x).ToString('0.###', $inv) }
 $total = $dur + $H
 $bannerFrom = $total - 2.2

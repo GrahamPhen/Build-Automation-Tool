@@ -21,8 +21,9 @@ function Songs($b) {
     if ($b -match '(?i)coffin|bat_|ghost|skull|halloween|haunt|magma|dragon|necro|reaper|pumpkin') { return 'middle_of_the_night_slowed' }
     if ($b -match '(?i)pokemon|rowlet|alakazam|mew|blastoise|articuno|pikachu|eevee') { return 'heat_waves_slowed' }
     if ($b -match '(?i)castle|tower|spire|watchtower|liner|ship|sanctuary|chapel|portal') { return 'colossus' }
-    return 'runaway_slowed'
+    return Get-NextHouseSong                                                  # (never runaway_slowed: copyright)
 }
+. (Join-Path $here 'shorts-meta.ps1')
 $inv = [Globalization.CultureInfo]::InvariantCulture
 
 if ($DelayMinutes -gt 0) { Say "waiting $DelayMinutes min before starting"; Start-Sleep -Seconds ($DelayMinutes * 60) }

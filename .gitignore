@@ -34,3 +34,4 @@ tools/shorts/*.log
 tools/shorts/*.pause
 tools/shorts/run-queue.last-style
 tools/shorts/recreate-shorts.log
+tools/shorts/run-queue.last-song

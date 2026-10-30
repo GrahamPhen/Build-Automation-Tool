@@ -20,12 +20,14 @@ foreach ($l in Get-Content (Join-Path $here 'run-queue.log')) {
     elseif ($cur -and $l -match '^\S+ \S+\s+render(?: \(\w+\))?: (replay=.+) music=(\S+)$') { $params[$cur] = @($Matches[1], $Matches[2]) }
 }
 $ff = (Get-ChildItem "$env:LOCALAPPDATA\Microsoft\WinGet\Packages" -Recurse -Filter ffmpeg.exe | Select-Object -First 1).FullName
+. (Join-Path $here 'shorts-meta.ps1')
 $styleFile = Join-Path $here 'run-queue.last-style'
 Say "recreate started: $($Builds.Count) builds"
 foreach ($name in $Builds) {
     if (Test-Path (Join-Path $here 'run-queue.pause')) { Say 'pause file found - stopping'; break }
     if (-not $params[$name]) { Say "${name}: no render settings in run-queue.log - skipped"; continue }
     $common, $music = $params[$name]
+    if ($music -eq 'runaway_slowed') { $music = Get-NextHouseSong }          # copyright: never Runaway again
     # same cameras as run-queue: tall builds fly-by, the rest alternate orbit / snap cuts
     $w = if ($common -match 'width=(\d+)') { [int]$Matches[1] } else { 0 }; $dp = if ($common -match 'depth=(\d+)') { [int]$Matches[1] } else { 0 }
     $h = if ($common -match 'height=(\d+)') { [int]$Matches[1] } else { 0 }
