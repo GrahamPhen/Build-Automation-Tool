@@ -175,7 +175,7 @@ foreach ($d in Get-ChildItem $Root -Directory | Where-Object { $_.Name -notlike 
     if ($Only.Count -and $Only -notcontains $d.Name) { continue }
     foreach ($v in Get-ChildItem $d.FullName -Filter *.mp4 -File | Where-Object { $_.Name -notlike '* - final*.mp4' } | Sort-Object Name) {
         $base = [IO.Path]::GetFileNameWithoutExtension($v.Name)
-        $cut = if ($base -match '-([ABCD])-') { $Matches[1] } else { 'B' }
+        $cut = if ($base -match '-([ABCDE])-') { $Matches[1] } else { 'B' }
         $title = Title $d.Name $cut $v.Name
         $rows.Add([pscustomobject]@{ Build = (Display $d.Name); Video = $v.Name; Title = $title })
         $jpg = Join-Path $Out "$base.jpeg"

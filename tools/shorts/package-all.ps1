@@ -1,4 +1,4 @@
-# Upload kit for every finished Short: makes any missing thumbnail, rewrites each "<build> - description.txt"
+﻿# Upload kit for every finished Short: makes any missing thumbnail, rewrites each "<build> - description.txt"
 # (title, server details, hashtags for that kind of build) and writes one Word doc listing every Short with its
 # video, thumbnail, title and full description, ready to copy-paste.
 #   package-all.ps1
@@ -33,8 +33,8 @@ foreach ($dir in Get-ChildItem $shorts -Directory | Where-Object { $_.Name -notm
         try { & (Join-Path $PSScriptRoot 'make-thumbnails.ps1') -Only $build | Select-Object -Last 1 } catch { "thumbnail error for ${build}: $_" }
         $titles = @(Import-Csv $csvPath | Where-Object { $_.Video -like "$build-*" })
     }
-    # the orbit (C) or snap-cut (D) video is what the finals are made from; else whatever this build has
-    $row = ($titles | Where-Object { $_.Video -match '-(C-orbit|D-cuts)-' } | Sort-Object { $_.Video -match '-s\d+\.mp4$' } | Select-Object -First 1)
+    # the orbit (C) or snap-cut (D) or fly-by (E) video is what the finals are made from; else whatever this build has
+    $row = ($titles | Where-Object { $_.Video -match '-(C-orbit|D-cuts|E-flyby)-' } | Sort-Object { $_.Video -match '-s\d+\.mp4$' } | Select-Object -First 1)
     if (-not $row) { $row = $titles | Select-Object -First 1 }
     $thumb = if ($row) { $row.Video -replace '\.mp4$', '.jpeg' } else { '' }
     if ($thumb -and -not (Test-Path -LiteralPath (Join-Path $kit $thumb))) { $thumb = "(missing) $thumb" }

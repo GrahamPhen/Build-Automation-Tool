@@ -90,15 +90,17 @@ while ($true) {
     if ($prog) { $common += " progress=$prog" }
     if ($wish -match '(?i)snow|frozen|ice') { $common += ' dusk=0' }     # sunset + shader snow fog looked orange
     $music = Songs $name
-    # the owner likes both cameras: takes alternate between the smooth orbit and snap cuts (a new angle every ~4 s)
+    # Tall builds (towers, castles, ships...) get the drone fly-by - it climbs alongside them as they go up; the rest
+    # alternate between the smooth orbit and snap cuts (a new angle every ~4 s). (Owner's picks, 2026-10-29.)
     $styleFile = Join-Path $here 'run-queue.last-style'
-    $style = if ((Get-Content $styleFile -ErrorAction SilentlyContinue) -eq 'orbit') { 'cuts' } else { 'orbit' }
-    $cutName = @{ orbit = 'C-orbit'; cuts = 'D-cuts' }[$style]
+    $tall = ([int]$h -ge 28 -and [int]$h -ge 0.7 * [math]::Max([int]$w, [int]$dp)) -or $name -match '(?i)castle|tower|spire|lighthouse|windmill|ship|liner|cathedral|church|chapel'
+    $style = if ($tall) { 'flyby' } elseif ((Get-Content $styleFile -ErrorAction SilentlyContinue) -eq 'orbit') { 'cuts' } else { 'orbit' }
+    $cutName = @{ orbit = 'C-orbit'; cuts = 'D-cuts'; flyby = 'E-flyby' }[$style]
     Say "  render ($style): $common music=$music"
     $renderStart = Get-Date
     try { & (Join-Path $here 'render-take.ps1') -Build $name -Common $common -Jobs "style=$style music=$music" 2>&1 | ForEach-Object { Say "    $_" } } catch { Say "    render error: $_" }
     $raw = "C:\Users\Graham\Desktop\Shorts\$name\$name-$cutName-$music.mp4"
-    if (Test-Path -LiteralPath $raw) { Set-Content $styleFile $style }
+    if ((Test-Path -LiteralPath $raw) -and $style -ne 'flyby') { Set-Content $styleFile $style }   # (fly-bys don't break the orbit/cuts turn-taking)
     # only a video rendered (and checked) just now - a rebuild's earlier take of the same name must not be finished
     if ((Test-Path -LiteralPath $raw) -and (Get-Item -LiteralPath $raw).LastWriteTime -gt $renderStart) {
         # a stopping error in a child script used to end this whole loop (it died after Pinecrest's thumbnail)
