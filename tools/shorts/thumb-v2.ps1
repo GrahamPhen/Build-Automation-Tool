@@ -35,6 +35,13 @@ $vf += ",vignette=angle=PI/5:mode=forward"
 if ($LASTEXITCODE -ne 0) { throw "frame grab failed" }
 
 $bmp = [System.Drawing.Bitmap]::FromFile($graded)
+if ($Text -and $TextY -lt 0) {
+    # auto: the name goes in whichever band (top or bottom) has the least detail - sky, not the build
+    $small = New-Object System.Drawing.Bitmap $bmp, 108, 192
+    function Busy($y0, $y1) { $s = 0.0; $n = 0; for ($y = $y0; $y -lt $y1; $y++) { for ($x = 0; $x -lt 107; $x++) { $a = $small.GetPixel($x, $y); $b = $small.GetPixel($x + 1, $y); $s += [math]::Abs($a.GetBrightness() - $b.GetBrightness()); $n++ } }; $s / $n }
+    $TextY = if ((Busy 8 30) -le (Busy 160 182) * 1.3) { 0.085 } else { 0.88 }   # (top preferred: the feed's title sits on the bottom)
+    $small.Dispose()
+}
 $canvas = New-Object System.Drawing.Bitmap 1080, 1920
 $g = [System.Drawing.Graphics]::FromImage($canvas); $g.SmoothingMode = 'AntiAlias'; $g.TextRenderingHint = 'AntiAlias'; $g.InterpolationMode = 'HighQualityBicubic'
 $g.DrawImage($bmp, 0, 0, 1080, 1920); $bmp.Dispose()

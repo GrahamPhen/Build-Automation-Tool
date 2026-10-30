@@ -26,20 +26,26 @@ foreach ($name in $Builds) {
     if (Test-Path (Join-Path $here 'run-queue.pause')) { Say 'pause file found - stopping'; break }
     if (-not $params[$name]) { Say "${name}: no render settings in run-queue.log - skipped"; continue }
     $common, $music = $params[$name]
-    $style = if ((Get-Content $styleFile -ErrorAction SilentlyContinue) -eq 'orbit') { 'cuts' } else { 'orbit' }
-    $cutName = @{ orbit = 'C-orbit'; cuts = 'D-cuts' }[$style]
+    # same cameras as run-queue: tall builds fly-by, the rest alternate orbit / snap cuts
+    $w = if ($common -match 'width=(\d+)') { [int]$Matches[1] } else { 0 }; $dp = if ($common -match 'depth=(\d+)') { [int]$Matches[1] } else { 0 }
+    $h = if ($common -match 'height=(\d+)') { [int]$Matches[1] } else { 0 }
+    $tall = ($h -ge 28 -and $h -ge 0.7 * [math]::Max($w, $dp)) -or $name -match '(?i)castle|tower|spire|lighthouse|windmill|ship|liner|cathedral|church|chapel'
+    $style = if ($tall) { 'flyby' } elseif ((Get-Content $styleFile -ErrorAction SilentlyContinue) -eq 'orbit') { 'cuts' } else { 'orbit' }
+    $cutName = @{ orbit = 'C-orbit'; cuts = 'D-cuts'; flyby = 'E-flyby' }[$style]
     $dir = Join-Path $shorts $name
     Say "=== $name ($style, $music)"
-    foreach ($f in Get-ChildItem -LiteralPath $dir -File | Where-Object { $_.Name -match '-[CD]-(orbit|cuts)-.*\.(mp4|timing\.txt)$' -or $_.Name -like '* - final*.mp4' }) { Recycle $f.FullName }
+    foreach ($f in Get-ChildItem -LiteralPath $dir -File | Where-Object { $_.Name -match '-[CDE]-(orbit|cuts|flyby)-.*\.(mp4|timing\.txt)$' -or $_.Name -like '* - final*.mp4' }) { Recycle $f.FullName }
     $renderStart = Get-Date
     try { & (Join-Path $here 'render-take.ps1') -Build $name -Common $common -Jobs "style=$style music=$music" 2>&1 | ForEach-Object { Say "    $_" } } catch { Say "    render error: $_" }
     $raw = Join-Path $dir "$name-$cutName-$music.mp4"
     if (-not ((Test-Path -LiteralPath $raw) -and (Get-Item -LiteralPath $raw).LastWriteTime -gt $renderStart)) { Say "  ${name}: no rendered video"; continue }
-    Set-Content $styleFile $style
+    if ($style -ne 'flyby') { Set-Content $styleFile $style }
     # titles of videos that are gone (the other camera's name) must not be picked up again
     $rows = @(Import-Csv $csvPath | Where-Object { -not ($_.Video -like "$name-*" -and -not (Test-Path -LiteralPath (Join-Path $dir $_.Video))) })
     $rows | Export-Csv -NoTypeInformation -Encoding UTF8 $csvPath
     try { & (Join-Path $here 'make-thumbnails.ps1') -Only $name -Force 2>&1 | Select-Object -Last 1 | ForEach-Object { Say "    $_" } } catch { Say "    thumbnail error: $_" }
+    # (make-thumbnails gives the title; the cover itself is the approved v2 style)
+    try { & (Join-Path $here 'thumb-v2-build.ps1') -Build $name 2>&1 | Select-Object -Last 1 | ForEach-Object { Say "    $_" } } catch { Say "    v2 thumbnail error: $_" }
     $row = Import-Csv $csvPath | Where-Object { $_.Video -eq "$name-$cutName-$music.mp4" } | Select-Object -First 1
     $final = Join-Path $dir "$name - final.mp4"
     try { & (Join-Path $here 'finish-short.ps1') -In $raw -Out $final -Build $name -Display "$($row.Build)" -Title "$($row.Title)" 2>&1 | ForEach-Object { Say "    $_" } } catch { Say "    finish error: $_" }

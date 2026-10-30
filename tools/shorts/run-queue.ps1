@@ -105,6 +105,8 @@ while ($true) {
     if ((Test-Path -LiteralPath $raw) -and (Get-Item -LiteralPath $raw).LastWriteTime -gt $renderStart) {
         # a stopping error in a child script used to end this whole loop (it died after Pinecrest's thumbnail)
         try { & (Join-Path $here 'make-thumbnails.ps1') -Only $name 2>&1 | Select-Object -Last 1 | ForEach-Object { Say "    $_" } } catch { Say "    thumbnail error: $_" }
+        # (make-thumbnails gives the title; the cover itself is the approved v2 style: full frame + name)
+        try { & (Join-Path $here 'thumb-v2-build.ps1') -Build $name 2>&1 | Select-Object -Last 1 | ForEach-Object { Say "    $_" } } catch { Say "    v2 thumbnail error: $_" }
         $row = Import-Csv 'C:\Users\Graham\Desktop\Shorts Thumbnails and Titles\titles.csv' | Where-Object { $_.Video -eq "$name-$cutName-$music.mp4" } | Select-Object -First 1
         # hook opening + hook text + server banner + seamless loop (replaces the separate 4.6 s end card)
         $final = "C:\Users\Graham\Desktop\Shorts\$name\$name - final.mp4"
