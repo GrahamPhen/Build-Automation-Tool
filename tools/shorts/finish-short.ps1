@@ -23,14 +23,18 @@ if (Test-Path $hf) { (Get-Content $hf -Raw | ConvertFrom-Json).PSObject.Properti
 # Default hooks rotate per build (the same "Rate this X 1-10" on every video would go stale); hooks.json overrides.
 . (Join-Path $PSScriptRoot 'shorts-meta.ps1')
 $kind = Get-ShortKind $Build
-# Search words in the on-screen hook too (YouTube reads the text in the first frames): "Minecraft ... idea".
+# The opening shows the FINISHED build with a line that sets up the snap back to block 1 (owner's formula, Oct
+# 2026), with search words in it (YouTube reads the text in the first frames). True claims only: every take
+# starts on a wild hillside and the character places every block by hand.
+$blk = Get-ShortBlocks $Build
+$byHand = if ($blk) { "$blk blocks, all placed by hand" } else { "Every block placed by hand" }
 $pool = @{
-    building = if (Test-ShortWinter $Build) { @("Cozy Minecraft winter $Display", "Would you survive winter in this $($Display)?", "Minecraft $Display idea for winter") }
-               else { @("Rate this Minecraft $Display 1-10", "Would you live in this $($Display)?", "Minecraft $Display build idea", "Can I build a $Display by hand?") }
-    pokemon  = @("Rate this $Display 1-10", "Can I build a giant $Display?", "Watch $Display come to life", "Rate my $Display build 1-10")
-    spooky   = @("Rate this spooky $Display 1-10", "Would you sleep in this $($Display)?", "Watch this $Display rise", "Too spooky? Rate it 1-10")
-    vehicle  = @("Can I build a giant $Display?", "How big can a Minecraft $Display get?", "Rate this $Display 1-10", "Watch this $Display build itself")
-    statue   = @("Rate this $Display 1-10", "Can I build a giant $Display?", "Watch this $Display come to life", "Rate my $Display build 1-10")
+    building = if (Test-ShortWinter $Build) { @("From a snowy hill to THIS cozy $Display", $byHand, "Minecraft $($Display): watch it go up from block 1") }
+               else { @("From an empty hill to THIS Minecraft $Display", $byHand, "Minecraft $($Display): watch it go up from block 1") }
+    pokemon  = @("From an empty hill to a GIANT $Display", $byHand, "Giant Minecraft $($Display), from block 1")
+    spooky   = @("From an empty hill to THIS haunted $Display", $byHand, "Minecraft $($Display): watch it rise from block 1")
+    vehicle  = @("From an empty hill to a HUGE $Display", $byHand, "Minecraft $($Display), from block 1")
+    statue   = @("From an empty hill to a GIANT $Display", $byHand, "Giant Minecraft $($Display), from block 1")
 }
 $seed = 0; foreach ($ch in $Build.ToCharArray()) { $seed = ($seed * 31 + [int]$ch) % 1000003 }
 $hookText = if ($hooks.ContainsKey($Build)) { $hooks[$Build] } else { $pool[$kind][$seed % $pool[$kind].Count] -creplace '\ba ([AEIOU])', 'an $1' }

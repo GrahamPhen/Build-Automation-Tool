@@ -55,13 +55,19 @@ if (Test-Path $csvPath) { foreach ($r in Import-Csv $csvPath) { $known[$r.Video]
 function Title($b, $cut, $video) {
     if ($video -and $known.ContainsKey($video)) { return $known[$video] }
     $n = Display $b
+    # The owner's title formula (Oct 2026): "Stop Building ___" fixes and time/scale challenges ("Turning an empty
+    # plot into ... (10,000 Blocks)") - no more "Building a X in Minecraft". Only true claims: every take does start on
+    # a wild hillside and the block count is what the character placed.
+    $blk = Get-ShortBlocks $b
+    $scale = if ($blk) { " ($blk Blocks)" } else { ' in Minecraft' }
     $pool = switch (Kind $b) {
-        'pokemon'  { @("I Built a Giant $n in Minecraft!", "Building $n Block by Block", "Can I Build a Perfect $n in Minecraft?", "This $n Build Took Hours (Timelapse)", "Rate My Minecraft $n 1-10") }
-        'spooky'   { @("Building a Spooky $n in Minecraft", "Would You Sleep in This $($n)?", "This $n Is Perfect for Halloween", "Minecraft $n Build Timelapse", "Rate This Spooky $n 1-10") }
-        'vehicle'  { @("I Built a Huge $n in Minecraft!", "How Big Can a Minecraft $n Get?", "Minecraft $n Build Timelapse", "Building a $n Block by Block") }
-        'statue'   { @("I Built a Giant $n in Minecraft!", "Building $n Block by Block", "Rate My Minecraft $n 1-10", "Minecraft $n Build Timelapse") }
-        default    { if (Test-ShortWinter $b) { @("Cozy Minecraft Winter $n Idea", "Building a Cozy $n in Minecraft", "Minecraft Snowy $n Build Timelapse", "Would You Survive Winter in This $($n)?") } else {
-                     @("Minecraft $n Build Idea", "Easy Minecraft $n (Survival Build)", "Building a $n in Minecraft", "Would You Live in This $($n)?", "This Minecraft $n Turned Out Amazing", "I Built a $n on a Hill in Minecraft", "Minecraft $n Build Timelapse", "Rate This $n 1-10") } }
+        'pokemon'  { @("Turning an Empty Hill Into a Giant $n$scale", "Stop Building Tiny Pokemon in Minecraft (Go Giant)", "From an Empty Hill to a Giant $n in Minecraft") }
+        'spooky'   { @("Turning an Empty Hill Into a Haunted $n$scale", "Stop Building Boring Halloween Builds (Try This $n)", "From an Empty Hill to a Spooky $n in Minecraft") }
+        'vehicle'  { @("Turning an Empty Hill Into a Giant $n$scale", "Stop Building Tiny Boats in Minecraft (Go Huge)", "From an Empty Hill to a Huge $n in Minecraft") }
+        'statue'   { @("Turning an Empty Hill Into a Giant $n$scale", "Stop Building Tiny Statues in Minecraft (Go Giant)", "From an Empty Hill to a Giant $n in Minecraft") }
+        default    { if (Test-ShortWinter $b) { @("Turning a Snowy Hill Into a Cozy $n$scale", "Stop Building Boring Winter Bases (Build This Cozy $n)", "From a Snowy Hill to a Cozy $n in Minecraft") } else {
+                     @("Stop Building Boring $(Get-ShortNoun $b) in Minecraft (Build This Instead)", "Turning an Empty Hillside Into a $n$scale",
+                       "Turning a Wild Hill Into a $n in Minecraft", "From an Empty Hill to This $n (Minecraft Timelapse)") } }
     }
     $seed = 0; foreach ($ch in "$b$cut".ToCharArray()) { $seed = ($seed * 31 + [int]$ch) % 1000003 }
     # one hashtag at most in the title (the rest are in the description) - "an Articuno"

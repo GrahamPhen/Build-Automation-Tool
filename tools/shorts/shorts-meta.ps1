@@ -13,7 +13,38 @@ function Get-ShortKind([string] $Build) {
 }
 
 # winter / cozy builds get the seasonal search words (Nov-Dec: "cozy winter cabin", "snowy survival base")
-function Test-ShortWinter([string] $Build) { $Build -match '(?i)snow|winter|frost|(^|[_ +])ice|alpine|christmas|xmas|igloo|cabin|cozy' }
+# (and only if the site really was snowy when run-queue logged its wish: "Frostwood Mill" on plains got "From a
+# snowy hill to THIS cozy Frostwood Mill")
+function Test-ShortWinter([string] $Build) {
+    if ($Build -notmatch '(?i)snow|winter|frost|(^|[_ +])ice|alpine|christmas|xmas|igloo|cabin|cozy') { return $false }
+    $log = Join-Path $PSScriptRoot 'run-queue.log'
+    $wish = if (Test-Path $log) { Select-String -Path $log -Pattern ("=== " + [regex]::Escape($Build) + " \((.*)\)") | Select-Object -Last 1 | ForEach-Object { $_.Matches[0].Groups[1].Value } }
+    return (-not $wish) -or ($wish -match '(?i)snow|frozen|ice|winter|taiga|grove')
+}
+
+# Blocks the character placed (the last "progress" count run-queue logged for the take), as "9,000+" - for the
+# scale titles ("Turning an Empty Hillside Into a Tavern (9,000+ Blocks)"). '' when unknown.
+function Get-ShortBlocks([string] $Build) {
+    $log = Join-Path $PSScriptRoot 'run-queue.log'
+    if (-not (Test-Path $log)) { return '' }
+    $cur = $null; $n = 0
+    foreach ($l in Get-Content $log) {
+        if ($l -match '=== (\S+) ') { $cur = $Matches[1] }
+        elseif ($cur -eq $Build -and $l -match 'progress=\S*?:(\d+)(\s+dusk=\d+)?\s+music=') { $n = [int]$Matches[1] }
+    }
+    if ($n -lt 3000) { return '' }                                    # "(1,000+ Blocks)" undersells it - no count then
+    $step = if ($n -ge 10000) { 1000 } else { 500 }
+    return ('{0:N0}+' -f ([math]::Floor($n / $step) * $step))
+}
+
+# what to call it in "Stop Building Boring ___" titles
+function Get-ShortNoun([string] $Build) {
+    switch -Regex ($Build) {
+        '(?i)castle|fort|keep' { 'Castles' } '(?i)tower|spire|lighthouse' { 'Towers' } '(?i)windmill|mill' { 'Windmills' }
+        '(?i)church|chapel|cathedral|sanctuary|temple' { 'Churches' } '(?i)barn|farm' { 'Barns' } '(?i)ship|liner|boat' { 'Boats' }
+        '(?i)cafe|caf_|shop|bakery|bakehouse|tavern|inn' { 'Shops' } '(?i)portal|gate' { 'Portals' } default { 'Houses' }
+    }
+}
 
 function Get-ShortSeed([string] $Build) { $s = 0; foreach ($ch in $Build.ToCharArray()) { $s = ($s * 31 + [int]$ch) % 1000003 }; $s }
 
