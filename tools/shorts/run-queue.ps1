@@ -91,11 +91,10 @@ while ($true) {
     if ($prog) { $common += " progress=$prog" }
     if ($wish -match '(?i)snow|frozen|ice') { $common += ' dusk=0' }     # sunset + shader snow fog looked orange
     $music = Songs $name
-    # Tall builds (towers, castles, ships...) get the drone fly-by - it climbs alongside them as they go up; the rest
-    # alternate between the smooth orbit and snap cuts (a new angle every ~4 s). (Owner's picks, 2026-10-29.)
+    # Snap cuts (a new angle every ~4 s) for every take - the owner's favourite (2026-10-30). No fly-by (far too
+    # jumpy); the orbit is still there as style=orbit if ever wanted.
     $styleFile = Join-Path $here 'run-queue.last-style'
-    $tall = ([int]$h -ge 28 -and [int]$h -ge 0.7 * [math]::Max([int]$w, [int]$dp)) -or $name -match '(?i)castle|tower|spire|lighthouse|windmill|ship|liner|cathedral|church|chapel'
-    $style = if ($tall) { 'flyby' } elseif ((Get-Content $styleFile -ErrorAction SilentlyContinue) -eq 'orbit') { 'cuts' } else { 'orbit' }
+    $style = 'cuts'
     $cutName = @{ orbit = 'C-orbit'; cuts = 'D-cuts'; flyby = 'E-flyby' }[$style]
     Say "  render ($style): $common music=$music"
     $renderStart = Get-Date

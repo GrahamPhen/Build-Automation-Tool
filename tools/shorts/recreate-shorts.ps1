@@ -28,17 +28,14 @@ foreach ($name in $Builds) {
     if (-not $params[$name]) { Say "${name}: no render settings in run-queue.log - skipped"; continue }
     $common, $music = $params[$name]
     if ($music -eq 'runaway_slowed') { $music = Get-NextHouseSong }          # copyright: never Runaway again
-    # same cameras as run-queue: tall builds fly-by, the rest alternate orbit / snap cuts
-    $w = if ($common -match 'width=(\d+)') { [int]$Matches[1] } else { 0 }; $dp = if ($common -match 'depth=(\d+)') { [int]$Matches[1] } else { 0 }
-    $h = if ($common -match 'height=(\d+)') { [int]$Matches[1] } else { 0 }
-    $tall = ($h -ge 28 -and $h -ge 0.7 * [math]::Max($w, $dp)) -or $name -match '(?i)castle|tower|spire|lighthouse|windmill|ship|liner|cathedral|church|chapel'
-    $style = if ($tall) { 'flyby' } elseif ((Get-Content $styleFile -ErrorAction SilentlyContinue) -eq 'orbit') { 'cuts' } else { 'orbit' }
+    # same camera as run-queue: snap cuts (the owner's favourite; no fly-by - far too jumpy)
+    $style = 'cuts'
     $dir = Join-Path $shorts $name
-    # -Keep: same camera and song as the Short has now (a quality-only re-render, e.g. 30 -> 60 fps)
+    # -Keep: same song as the Short has now (a quality-only re-render, e.g. 30 -> 60 fps)
     if ($Keep) {
         $cur = Get-ChildItem -LiteralPath $dir -Filter "$name-*.mp4" -ErrorAction SilentlyContinue | Where-Object { $_.Name -match '-[CDE]-(orbit|cuts|flyby)-(.+)\.mp4$' -and $_.Name -notmatch '-s\d+\.mp4$' } |
             Sort-Object LastWriteTime -Descending | Select-Object -First 1
-        if ($cur -and $cur.Name -match '-[CDE]-(orbit|cuts|flyby)-(.+)\.mp4$') { $style = $Matches[1]; $music = $Matches[2] }
+        if ($cur -and $cur.Name -match '-[CDE]-(orbit|cuts|flyby)-(.+)\.mp4$') { $music = $Matches[2] }
     }
     $cutName = @{ orbit = 'C-orbit'; cuts = 'D-cuts'; flyby = 'E-flyby' }[$style]
     Say "=== $name ($style, $music)"

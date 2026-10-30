@@ -633,12 +633,16 @@ final class RenderDirector {
                 speed(B, end, 10);
             }
             case "flyby" -> {
+                // NOT USED (owner, 2026-10-30: "way too much camera movement", "there should be no jumpyness" - the
+                // approved styles are orbit and cuts). Kept only for reference.
                 // Drone fly-bys (after the Winnel Castle Short the owner liked): close and low, each shot slides
                 // sideways past the build (the hills move behind it) and rises with the part going up now, a cut to
                 // the next side every ~4 s, then one long pull back and up to the whole build, ending on the front.
                 time = 9000;
                 double sc = Math.max(0.4, Math.min(1.5, num("seconds", 34) / 60));
-                move(0, T, ground, low, front - 120, front - 70, 24, 18, frontDist * 1.2, frontDist * 0.95);
+                // a calm opening: a slow 12-degree drift over the site prep (it swung 50 degrees in under 5 s - the
+                // owner: "way too much camera movement ... at least in the first 5 seconds")
+                move(0, T, ground, low, front - 120, front - 108, 22, 20, frontDist * 1.15, frontDist * 1.05);
                 speed(0, H, 1.5 * sc);
                 speed(H, T, 7 * sc);
                 buildOut0 = outTicks / 20.0;
