@@ -51,7 +51,8 @@ function Kind($b) { Get-ShortKind $b }
 # challenge, "rate it" and plain searchable ones - picked per video so a run of uploads doesn't all read alike.
 $known = @{}
 $csvPath = Join-Path $Out 'titles.csv'
-if (Test-Path $csvPath) { foreach ($r in Import-Csv $csvPath) { $known[$r.Video] = $r.Title } }
+$usedTitles = @{}
+if (Test-Path $csvPath) { foreach ($r in Import-Csv $csvPath) { $known[$r.Video] = $r.Title; $usedTitles[$r.Title] = 1 } }
 function Title($b, $cut, $video) {
     if ($video -and $known.ContainsKey($video)) { return $known[$video] }
     $n = Display $b
@@ -70,8 +71,14 @@ function Title($b, $cut, $video) {
                        "Turning a Wild Hill Into a $n in Minecraft", "From an Empty Hill to This $n (Minecraft Timelapse)") } }
     }
     $seed = 0; foreach ($ch in "$b$cut".ToCharArray()) { $seed = ($seed * 31 + [int]$ch) % 1000003 }
-    # the viral title: claim + emoji, no hashtag (they are in the description) - "an Articuno"
-    return "$($pool[$seed % $pool.Count] -creplace '\ba ([AEIOU])', 'an $1') $(Get-ShortEmoji $b)"
+    # the viral title: claim + emoji, no hashtag (they are in the description) - "an Articuno". Never one another
+    # Short already has (three Pokemon all got "Stop Building Tiny Pokemon in Minecraft (Go Giant)").
+    for ($k = 0; $k -lt $pool.Count; $k++) {
+        $t = "$($pool[($seed + $k) % $pool.Count] -creplace '\ba ([AEIOU])', 'an $1') $(Get-ShortEmoji $b)"
+        if (-not $usedTitles.ContainsKey($t)) { break }
+    }
+    $usedTitles[$t] = 1
+    return $t
 }
 
 # Graphics helpers.

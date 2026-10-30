@@ -40,9 +40,9 @@ function Get-ShortBlocks([string] $Build) {
 # what to call it in "Stop Building Boring ___" titles
 function Get-ShortNoun([string] $Build) {
     switch -Regex ($Build) {
-        '(?i)castle|fort|keep' { 'Castles' } '(?i)tower|spire|lighthouse' { 'Towers' } '(?i)windmill|mill' { 'Windmills' }
-        '(?i)church|chapel|cathedral|sanctuary|temple' { 'Churches' } '(?i)barn|farm' { 'Barns' } '(?i)ship|liner|boat' { 'Boats' }
-        '(?i)cafe|caf_|shop|bakery|bakehouse|tavern|inn' { 'Shops' } '(?i)portal|gate' { 'Portals' } default { 'Houses' }
+        '(?i)castle|fort|keep' { 'Castles'; break } '(?i)tower|spire|lighthouse' { 'Towers'; break } '(?i)windmill' { 'Windmills'; break } '(?i)mill' { 'Mills'; break }
+        '(?i)church|chapel|cathedral|sanctuary|temple' { 'Churches'; break } '(?i)barn|farm' { 'Barns'; break } '(?i)ship|liner|boat' { 'Boats'; break }
+        '(?i)cafe|caf_|shop|bakery|bakehouse|tavern|inn' { 'Shops'; break } '(?i)portal|gate' { 'Portals'; break } default { 'Houses'; break }
     }
 }
 
