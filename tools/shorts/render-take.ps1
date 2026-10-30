@@ -40,7 +40,7 @@ for ($k = 0; $k -lt $Jobs.Count; $k++) {
     $j = $Jobs[$k]
     $style = if ($j -match 'style=(\w+)') { $Matches[1] } else { 'orbit' }
     $music = if ($j -match 'music=(\S+)') { $Matches[1] } else { 'none' }
-    $letter = @{ cinematic = 'B'; orbit = 'C'; tripod = 'A'; cuts = 'D' }[$style]
+    $letter = @{ cinematic = 'B'; orbit = 'C'; tripod = 'A'; cuts = 'D'; flyby = 'E' }[$style]
     $suffix = if ($j -match 'timeOfDay=(\d+)') { "-t$($Matches[1])" } else { '' }
     if ($j -match 'seconds=(\d+)') { $suffix += "-s$($Matches[1])" }
     $out = "$Build-$letter-$style-$music$suffix.mp4"

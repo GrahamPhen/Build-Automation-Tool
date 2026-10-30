@@ -632,6 +632,40 @@ final class RenderDirector {
                         front - 50, front + 12, -4, 6, frontDist * 0.95, frontDist * 1.05);
                 speed(B, end, 10);
             }
+            case "flyby" -> {
+                // Drone fly-bys (after the Winnel Castle Short the owner liked): close and low, each shot slides
+                // sideways past the build (the hills move behind it) and rises with the part going up now, a cut to
+                // the next side every ~4 s, then one long pull back and up to the whole build, ending on the front.
+                time = 9000;
+                double sc = Math.max(0.4, Math.min(1.5, num("seconds", 34) / 60));
+                move(0, T, ground, low, front - 120, front - 70, 24, 18, frontDist * 1.2, frontDist * 0.95);
+                speed(0, H, 1.5 * sc);
+                speed(H, T, 7 * sc);
+                buildOut0 = outTicks / 20.0;
+                double[] side = {-60, 50, -140, 120, -20, 85, -95, 20};
+                double buildSec = 41.5 * sc;
+                int n = Math.max(2, Math.min(side.length, (int) Math.round(buildSec / 4)));
+                for (int i = 0; i < n; i++) {
+                    int a = T + (int) ((long) D * i / n), b = T + (int) ((long) D * (i + 1) / n);
+                    if (i > 0) cutTimes.add(outTicks / 20.0);
+                    // aim at the height being built in this stretch (layers go up from the bottom)
+                    double f0 = (double) i / n, f1 = (double) (i + 1) / n;
+                    Vector3d t0 = new Vector3d(cx, base + h * Math.min(0.8, 0.1 + f0 * 0.8), cz);
+                    Vector3d t1 = new Vector3d(cx, base + h * Math.min(0.85, 0.1 + f1 * 0.8), cz);
+                    double dir = i % 2 == 0 ? 1 : -1;                          // alternate the slide direction
+                    lastMove = null;
+                    move(a, b, t0, t1, front + side[i], front + side[i] + 40 * dir, 10, 14, frontDist * 0.68, frontDist * 0.6);
+                    speedProgress(a, b, buildSec / n);
+                }
+                buildOut1 = outTicks / 20.0;
+                cutTimes.add(outTicks / 20.0);
+                lastMove = null;
+                move(B, end, new Vector3d(cx, base + h * 0.35, cz), mid, front - 45, front + 10, 4, 12, frontDist * 0.6, frontDist * 1.05);
+                speed(B, end, 10 * Math.max(0.75, sc));
+                boolean intoSun = Math.cos(Math.toRadians(front + 10 - 90)) > 0.4;
+                if (intoSun) time = 3000;
+                if (num("dusk", 1) > 0 && !intoSun) duskFrom = B;
+            }
             case "cuts" -> {
                 // Snap cuts (test against the orbit): a new angle about every 4 s while it builds, each with a
                 // slight push-in, then the same reveal as the orbit's last 80 degrees, ending on the front.
