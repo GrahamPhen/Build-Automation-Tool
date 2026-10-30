@@ -40,7 +40,7 @@ foreach ($raw in $raws) {
     $row = $rows | Where-Object { $_.Video -eq $newName } | Select-Object -First 1
     $final = Join-Path $raw.DirectoryName "$b - final.mp4"
     try { & (Join-Path $PSScriptRoot 'finish-short.ps1') -In $newRaw -Out $final -Build $b -Display "$($row.Build)" -Title "$($row.Title)" | Out-Null } catch { "${b}: finish FAILED - $_"; continue }
-    & $ff -v error -y -i $final -c:v libx264 -preset slow -crf 25 -maxrate 3500k -bufsize 7000k -c:a aac -b:a 160k -movflags +faststart (Join-Path $raw.DirectoryName "$b - final (phone size).mp4")
+    & $ff -v error -y -i $final -c:v libx264 -preset slow -crf 21 -maxrate 5500k -bufsize 11000k -c:a aac -b:a 160k -movflags +faststart (Join-Path $raw.DirectoryName "$b - final (phone size).mp4")
     "$b -> $song"
 }
 & (Join-Path $PSScriptRoot 'package-all.ps1') | Select-Object -Last 1

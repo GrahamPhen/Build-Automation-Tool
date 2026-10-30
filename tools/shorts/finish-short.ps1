@@ -1,4 +1,4 @@
-﻿# Finishes a rendered Short for posting (research: reports\Minecraft build Shorts engagement.md, items 1-4):
+# Finishes a rendered Short for posting (research: reports\Minecraft build Shorts engagement.md, items 1-4):
 #  1. flash-forward hook - it OPENS on the finished build: the video's own final frame, held 1.2 s with a slow
 #     push-in, then a hard cut to the empty site;
 #  2. one line of hook text over that opening ("Rate this castle 1-10", or the build's premise from hooks.json);
@@ -129,7 +129,12 @@ if ($k -gt 2) {
     & $ff -v error -y @hitIn -filter_complex (($hitF -join ';') + ";$($mixIn)amix=inputs=$($k):normalize=0,apad=whole_dur=2.4,atrim=0:2.4") $blocksWav
     if ($LASTEXITCODE -ne 0) { $blocksWav = $null }
 }
-$chime = Sfx 'random/levelup'
+# the opening sound fits the build: thunder for spooky ones, a bell for towers / chapels / castles, a shimmer for
+# winter builds, the level-up chime for the rest
+$chime = if ($kind -eq 'spooky') { Sfx 'ambient/weather/thunder1' }
+         elseif ($Build -match '(?i)castle|tower|spire|chapel|church|cathedral|sanctuary|clock') { Sfx 'block/bell/bell_use01' }
+         elseif (Test-ShortWinter $Build) { Sfx 'block/amethyst/shimmer' }
+         else { Sfx 'random/levelup' }
 $sweep = Sfx 'entity/player/attack/sweep1'
 $sfxIn = @(); $sfxF = @(); $mixLabels = @('[mus]'); $n = 4
 if ($blocksWav) {
@@ -138,7 +143,8 @@ if ($blocksWav) {
     $sfxF += "[$($n):a]atrim=duration=$(N $len),afade=t=in:d=0.6,afade=t=out:st=$(N ($len - 0.8)):d=0.8,volume=0.4,adelay=delays=$([int]($b0 * 1000)):all=1[blk]"
     $mixLabels += '[blk]'; $n++
 }
-if ($chime) { $sfxIn += '-i', $chime; $sfxF += "[$($n):a]aresample=48000,aformat=channel_layouts=stereo,volume=0.5[chm]"; $mixLabels += '[chm]'; $n++ }
+$chimeVol = if ($chime -match 'bell') { 2.2 } elseif ($chime -match 'shimmer') { 1.6 } elseif ($chime -match 'thunder') { 0.7 } else { 0.5 }   # (the bell sample is ~12 dB quieter than the level-up)
+if ($chime) { $sfxIn += '-i', $chime; $sfxF += "[$($n):a]aresample=48000,aformat=channel_layouts=stereo,volume=$chimeVol[chm]"; $mixLabels += '[chm]'; $n++ }
 if ($sweep -and $timing.cuts) {
     $sfxIn += '-i', $sweep
     $c = $timing.cuts.Count
@@ -163,7 +169,7 @@ $g2 = @(
     "[0:a]adelay=delays=$([int]($H * 1000)):all=1,aresample=48000,aformat=channel_layouts=stereo[mus]"
 ) + $sfxF + @("$($mixLabels -join '')amix=inputs=$($mixLabels.Count):normalize=0:duration=first,alimiter=limit=0.95[a]") -join ';'
 & $ff -v error -y -i $In -loop 1 -framerate $rate -t (N $H) -i $last -loop 1 -framerate $rate -t (N $total) -i $hookPng -loop 1 -framerate $rate -t (N $total) -i $bannerPng @sfxIn `
-    -filter_complex $g2 -map '[v]' -map '[a]' -c:v libx264 -preset medium -crf 18 -pix_fmt yuv420p -c:a aac -b:a 192k -movflags +faststart $Out
+    -filter_complex $g2 -map '[v]' -map '[a]' -c:v libx264 -preset slow -b:v 20M -maxrate 25M -bufsize 40M -pix_fmt yuv420p -c:a aac -b:a 192k -movflags +faststart $Out
 if ($LASTEXITCODE -ne 0) { throw "ffmpeg failed on $In" }
 
 $desc = Get-ShortDescription $Build $Display $Title

@@ -1,4 +1,4 @@
-﻿# Build + edit, one take at a time: launch the next build hands-free, wait for it, then straight away make its
+# Build + edit, one take at a time: launch the next build hands-free, wait for it, then straight away make its
 # Short in the approved style (orbit cut ending square on the build's front, music, MineSurvive outro, a
 # phone-size copy and a thumbnail) before the next build starts.
 #   run-queue.ps1 [-DelayMinutes 0]
@@ -114,7 +114,7 @@ while ($true) {
         try { & (Join-Path $here 'finish-short.ps1') -In $raw -Out $final -Build $name -Display "$($row.Build)" -Title "$($row.Title)" 2>&1 | ForEach-Object { Say "    $_" } } catch { Say "    finish error: $_" }
         if (Test-Path -LiteralPath $final) {
             $ff = (Get-ChildItem "$env:LOCALAPPDATA\Microsoft\WinGet\Packages" -Recurse -Filter ffmpeg.exe | Select-Object -First 1).FullName
-            & $ff -v error -y -i $final -c:v libx264 -preset slow -crf 25 -maxrate 3500k -bufsize 7000k -c:a aac -b:a 160k -movflags +faststart "C:\Users\Graham\Desktop\Shorts\$name\$name - final (phone size).mp4"
+            & $ff -v error -y -i $final -c:v libx264 -preset slow -crf 21 -maxrate 5500k -bufsize 11000k -c:a aac -b:a 160k -movflags +faststart "C:\Users\Graham\Desktop\Shorts\$name\$name - final (phone size).mp4"
             Say "  $name SHORT READY"
         } else { Say "  ${name}: no final video" }
     } else { Say "  ${name}: no rendered video" }

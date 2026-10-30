@@ -263,7 +263,7 @@ final class RenderDirector {
             StartBuildMod.LOGGER.info("[StartBuild] render: adding music {} to {}", music.getFileName(), out.getFileName());
             mixing = new Thread(() -> {
                 long t0 = System.currentTimeMillis();
-                String err = MusicMixer.mix(video, music, out, enc, 16_000_000, musicStart);
+                String err = MusicMixer.mix(video, music, out, enc, 32_000_000, musicStart);
                 StartBuildMod.LOGGER.info("[StartBuild] render: music {} ({} s)", err == null ? "added" : "FAILED - " + err,
                         (System.currentTimeMillis() - t0) / 1000);
             }, "startbuild-music");
@@ -812,10 +812,11 @@ final class RenderDirector {
                 "build short " + style, es, new Vec3(p0.x, p0.y, p0.z), yaw0, pitch0,
                 1080, 1920, 0, end,
                 enumValue("com.moulberry.flashback.combo_options.ExportProjection", "PERSPECTIVE"), 1f,
-                30.0, false, false,
+                // 60 fps at a high bitrate (playbook, Oct 2026: 30 fps / ~9 Mbps finals looked soft next to 1080p60 Shorts)
+                num("fps", 60), false, false,
                 enumValue("com.moulberry.flashback.combo_options.VideoContainer", "MP4"), h264,
                 encoderUsed = encoders.length > 0 ? encoders[0] : "libx264",
-                24_000_000, false, false, true, false,
+                40_000_000, false, false, true, false,
                 null, output, "%04d");
         Class<?> utils = Class.forName("com.moulberry.flashback.Utils");
         Field seq = utils.getField("exportSequenceCount");

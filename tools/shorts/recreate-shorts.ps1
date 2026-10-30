@@ -2,7 +2,7 @@
 # run-queue.log): the old raw / final / phone copy go to the Recycle Bin first, then render, thumbnail and title,
 # finish, phone copy - alternating orbit and snap-cut cameras like run-queue. Ends with package-all.
 #   recreate-shorts.ps1 -Builds name1,name2,...
-param([Parameter(Mandatory)][string[]] $Builds)
+param([Parameter(Mandatory)][string[]] $Builds, [switch] $Keep)
 $ErrorActionPreference = 'Continue'
 $Builds = @($Builds -split ',' | ForEach-Object { $_.Trim() } | Where-Object { $_ })   # (powershell -File passes "a,b" as one string)
 $here = $PSScriptRoot
@@ -33,8 +33,14 @@ foreach ($name in $Builds) {
     $h = if ($common -match 'height=(\d+)') { [int]$Matches[1] } else { 0 }
     $tall = ($h -ge 28 -and $h -ge 0.7 * [math]::Max($w, $dp)) -or $name -match '(?i)castle|tower|spire|lighthouse|windmill|ship|liner|cathedral|church|chapel'
     $style = if ($tall) { 'flyby' } elseif ((Get-Content $styleFile -ErrorAction SilentlyContinue) -eq 'orbit') { 'cuts' } else { 'orbit' }
-    $cutName = @{ orbit = 'C-orbit'; cuts = 'D-cuts'; flyby = 'E-flyby' }[$style]
     $dir = Join-Path $shorts $name
+    # -Keep: same camera and song as the Short has now (a quality-only re-render, e.g. 30 -> 60 fps)
+    if ($Keep) {
+        $cur = Get-ChildItem -LiteralPath $dir -Filter "$name-*.mp4" -ErrorAction SilentlyContinue | Where-Object { $_.Name -match '-[CDE]-(orbit|cuts|flyby)-(.+)\.mp4$' -and $_.Name -notmatch '-s\d+\.mp4$' } |
+            Sort-Object LastWriteTime -Descending | Select-Object -First 1
+        if ($cur -and $cur.Name -match '-[CDE]-(orbit|cuts|flyby)-(.+)\.mp4$') { $style = $Matches[1]; $music = $Matches[2] }
+    }
+    $cutName = @{ orbit = 'C-orbit'; cuts = 'D-cuts'; flyby = 'E-flyby' }[$style]
     Say "=== $name ($style, $music)"
     foreach ($f in Get-ChildItem -LiteralPath $dir -File | Where-Object { $_.Name -match '-[CDE]-(orbit|cuts|flyby)-.*\.(mp4|timing\.txt)$' -or $_.Name -like '* - final*.mp4' }) { Recycle $f.FullName }
     $renderStart = Get-Date
@@ -52,7 +58,7 @@ foreach ($name in $Builds) {
     $final = Join-Path $dir "$name - final.mp4"
     try { & (Join-Path $here 'finish-short.ps1') -In $raw -Out $final -Build $name -Display "$($row.Build)" -Title "$($row.Title)" 2>&1 | ForEach-Object { Say "    $_" } } catch { Say "    finish error: $_" }
     if (Test-Path -LiteralPath $final) {
-        & $ff -v error -y -i $final -c:v libx264 -preset slow -crf 25 -maxrate 3500k -bufsize 7000k -c:a aac -b:a 160k -movflags +faststart (Join-Path $dir "$name - final (phone size).mp4")
+        & $ff -v error -y -i $final -c:v libx264 -preset slow -crf 21 -maxrate 5500k -bufsize 11000k -c:a aac -b:a 160k -movflags +faststart (Join-Path $dir "$name - final (phone size).mp4")
         Say "  $name SHORT READY"
     } else { Say "  ${name}: no final video" }
 }
