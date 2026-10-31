@@ -16,6 +16,9 @@ $name = if ($row -and $row.Build) { $row.Build } else { (Get-Culture).TextInfo.T
 $manual = @{
     'Articuno_3'                    = @{ Zoom = 1.0; TextY = 0.88 }                            # the crest is at the top
     'Grand_Ocean_Liner'             = @{ At = 48; Zoom = 1.3; FocusX = 0.53; FocusY = 0.63; TextY = 0.085; Text = 'Ocean Liner' }
+    'Jigglypuff'                    = @{ At = -6; Zoom = 1.0 }                                 # the end is a close-up in the sunset
+    'medieval_trading_hall_b1'      = @{ At = -6.5; Zoom = 1.0 }                               # the whole hall on the diagonal
+    'sylveon'                       = @{ At = -1; Zoom = 1.0; TextY = 0.88 }                   # the ears reach the top
 }
 # default: 2.5 s before the end - the reveal is nearly round to the front, before the evening light turns orange
 $p = @{ At = -2.5; Zoom = 1.12; FocusY = 0.6; TextY = -1; Text = $name }
