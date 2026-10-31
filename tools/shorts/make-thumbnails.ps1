@@ -38,10 +38,13 @@ $names = @{
     'Farmer_House_TIER_1_' = "Farmer's House"; 'mew2' = 'Mew'; 'Rowlet2' = 'Rowlet'; 'Articuno_3' = 'Articuno'
     'HousePokemon' = 'Pokemon House'; 'Old_Town_Caf_TIER_1_' = 'Old Town Cafe'; 'The_Blacksmith_s_Home_TIER_1_' = "Blacksmith's Home"
     'rumah_atap_tinggi' = 'Tall Roof House'; 'rumah_hc' = 'Cozy House'; 'Medieval_Era_TIER_1_' = 'Medieval Home'; 'portal_2.0' = 'Giant Portal'
+    'Cozy_Alpine_Nature_Cabin' = 'Alpine Nature Cabin'; 'Cozy_Alpine_Nature_Cabin_b2' = 'Alpine Nature Cabin'   # (the winter titles add "Cozy")
+    'Piplup_Cute' = 'Piplup'; 'Blaziken3' = 'Blaziken'; 'MH013_Deepslate_Edition' = 'Deepslate Medieval House'
 }
 function Display($b) {
     if ($names.ContainsKey($b)) { return $names[$b] }
-    $t = ($b -replace '_(TIER|tier)_\d+_?$', '' -replace '_\d+$', '' -replace '[_+]', ' ').Trim()
+    # (and the packs' "_b1" / "_b175" variant numbers: "Medieval Tavern B1" read like a typo)
+    $t = ($b -replace '_(TIER|tier)_\d+_?$', '' -replace '_[bB]\d+$', '' -replace '_\d+$', '' -replace '[_+]', ' ').Trim()
     return (Get-Culture).TextInfo.ToTitleCase($t)
 }
 # the same kinds as the hook text and hashtags (this list used to miss Mew, Rowlet, ... - "Would you live in this Mew")

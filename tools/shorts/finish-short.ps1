@@ -16,7 +16,7 @@ $inv = [Globalization.CultureInfo]::InvariantCulture
 $work = Join-Path $env:TEMP ('finish-' + [guid]::NewGuid().ToString('N').Substring(0, 8)); New-Item -ItemType Directory $work | Out-Null
 $assets = Join-Path $PSScriptRoot 'outro-assets'
 
-if (-not $Display) { $Display = (Get-Culture).TextInfo.ToTitleCase((($Build -replace '_(TIER|tier)_\d+_?$', '' -replace '_\d+$', '' -replace '[_+]', ' ').Trim())) }
+if (-not $Display) { $Display = (Get-Culture).TextInfo.ToTitleCase((($Build -replace '_(TIER|tier)_\d+_?$', '' -replace '_[bB]\d+$', '' -replace '_\d+$', '' -replace '[_+]', ' ').Trim())) }
 $hooks = @{}
 $hf = Join-Path $PSScriptRoot 'hooks.json'
 if (Test-Path $hf) { (Get-Content $hf -Raw | ConvertFrom-Json).PSObject.Properties | ForEach-Object { $hooks[$_.Name] = $_.Value } }

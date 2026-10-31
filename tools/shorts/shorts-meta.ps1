@@ -5,7 +5,7 @@
 # #minecraftreels.
 
 function Get-ShortKind([string] $Build) {
-    if ($Build -match '(?i)charmander|pikachu|gengar|ninetales|squirtle|vaporeon|rayquaza|pokemon|bulbasaur|mimikyu|rowlet|alakazam|mew|blastoise|articuno|eevee') { return 'pokemon' }
+    if ($Build -match '(?i)charmander|pikachu|gengar|ninetales|squirtle|vaporeon|rayquaza|pokemon|bulbasaur|mimikyu|rowlet|alakazam|mew|blastoise|articuno|eevee|jigglypuff|sylveon|piplup|blaziken|quaxly|snorlax|lucario|psyduck|umbreon|togepi') { return 'pokemon' }
     if ($Build -match '(?i)haunt|halloween|pumpkin|witch|ghost|skull|coffin|bat_|cauldron|reaper|necro|grim') { return 'spooky' }
     if ($Build -match '(?i)statue|golem|knight|dragon|pharaoh|bust|monster|teddy') { return 'statue' }
     if ($Build -match '(?i)ship|liner|boat|kapal|vehicle|construction|truck|car|plane|train') { return 'vehicle' }
