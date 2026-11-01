@@ -114,6 +114,8 @@ while ($true) {
         if (Test-Path -LiteralPath $final) {
             $ff = (Get-ChildItem "$env:LOCALAPPDATA\Microsoft\WinGet\Packages" -Recurse -Filter ffmpeg.exe | Select-Object -First 1).FullName
             & $ff -v error -y -i $final -c:v libx264 -preset slow -crf 21 -maxrate 5500k -bufsize 11000k -c:a aac -b:a 160k -movflags +faststart "C:\Users\Graham\Desktop\Shorts\$name\$name - final (phone size).mp4"
+            # the posted cut is ~20 s (owner, 2026-10-31: 12-25 s); the 36 s one moves to "_long version"
+            if ($cutName -like 'D-*') { try { & (Join-Path $here 'shorten-short.ps1') -Build $name 2>&1 | Select-Object -Last 1 | ForEach-Object { Say "    $_" } } catch { Say "    shorten error: $_" } }
             Say "  $name SHORT READY"
         } else { Say "  ${name}: no final video" }
     } else { Say "  ${name}: no rendered video" }
