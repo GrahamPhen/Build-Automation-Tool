@@ -11,7 +11,7 @@ $raw = Get-ChildItem -LiteralPath $dir -Filter "$Build-*.mp4" | Where-Object { $
     Sort-Object LastWriteTime -Descending | Select-Object -First 1
 if (-not $raw) { "no render for $Build"; return }
 $row = Import-Csv (Join-Path $kit 'titles.csv') | Where-Object { $_.Video -eq $raw.Name } | Select-Object -First 1
-$name = if ($row -and $row.Build) { $row.Build } else { (Get-Culture).TextInfo.ToTitleCase(($Build -replace '_(TIER|tier)_\d+_?$', '' -replace '[_+]', ' ').Trim()) }
+$name = if ($row -and $row.Build) { $row.Build } else { (Get-Culture).TextInfo.ToTitleCase(($Build -replace '_(TIER|tier)_\d+_?$', '' -replace '_[bB]\d+$', '' -replace '_\d+$', '' -replace '[_+]', ' ').Trim()) }
 # hand-picked frames (the pilots): seconds (negative = from the end), zoom, focus, where the name goes
 $manual = @{
     'Articuno_3'                    = @{ Zoom = 1.0; TextY = 0.88 }                            # the crest is at the top

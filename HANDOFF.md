@@ -1,6 +1,12 @@
 # HANDOFF — Build Automation Tool (StartBuild 2.17.x)
 
-> Read this first. Last updated **2026-09-30**, mod version **2.17.22**, branch `natural-builder-2.0`
+> **Current state (2026-11-09):** mod **2.17.41** - builds go in flush with the ground (`SchematicModel.groundLayer`:
+> the concrete display base is left out; the build's own grass, or the floor under its lowest door, is set level
+> with the land). Shorts: `tools/shorts/run-queue.ps1` (snap cuts only, 60 fps, cut to ~20 s by
+> `shorten-short.ps1`, titles/thumbnails/upload sheet automatic); never the song runaway_slowed. Sections below
+> dated September are history - where they disagree with this paragraph or the code, this paragraph wins.
+>
+> Read this first. Section text last fully updated **2026-09-30** (mod 2.17.22), branch `natural-builder-2.0`
 > (pushed to `origin` = https://github.com/GrahamPhen/Build-Automation-Tool). The Baritone-era docs (1.x) are
 > archived in `docs/`; don't follow them. `CLAUDE.md` holds the short rules; this file holds everything else.
 

@@ -18,6 +18,7 @@ foreach ($l in Get-Content -LiteralPath ([IO.Path]::ChangeExtension($raw.FullNam
 $dur = [double]::Parse((& $fp -v error -show_entries format=duration -of csv=p=0 $raw.FullName).Trim(), $inv)
 $b0 = $timing.build[0]; $b1 = $timing.build[1]
 $bounds = @($b0) + @($timing.cuts | Where-Object { $_ -gt $b0 + 0.5 -and $_ -le $b1 + 0.01 })
+if ($bounds.Count -lt 2) { $bounds += $b1 }                       # (no cut during the build: one long shot)
 
 # pieces (start, end) in the render: [opening: 1.2 s of empty site + the first blocks] [one slice per later angle] [reveal]
 $hook = 1.2                                                        # (finish-short's flash-forward)
@@ -57,5 +58,6 @@ $row = Import-Csv 'C:\Users\Graham\Desktop\Shorts Thumbnails and Titles\titles.c
 $final = Join-Path $dir "$Build - final.mp4"
 & (Join-Path $PSScriptRoot 'finish-short.ps1') -In $cut -Out $final -Build $Build -Display "$($row.Build)" -Title "$($row.Title)"
 & $ff -v error -y -i $final -c:v libx264 -preset slow -crf 21 -maxrate 5500k -bufsize 11000k -c:a aac -b:a 160k -movflags +faststart (Join-Path $dir "$Build - final (phone size).mp4")
+if ($LASTEXITCODE -ne 0) { throw "phone copy failed for $Build" }
 Remove-Item -LiteralPath $work -Recurse -Force
 "$Build : $($pieces.Count) pieces, $(N ($total + $hook)) s"

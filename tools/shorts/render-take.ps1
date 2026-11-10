@@ -1,6 +1,6 @@
 ﻿# Renders one take's Shorts: closes the 26.2 game, writes the render flag, relaunches to the title screen,
 # waits for every job to finish, verifies each video and copies it to the Desktop Shorts folder.
-#   render-take.ps1 -Build charmander_80 -Common "replay=... centerX=..." -Jobs "style=cinematic music=royalty","style=orbit music=heat_waves_slowed"
+#   render-take.ps1 -Build charmander_80 -Common "replay=... centerX=..." -Jobs "style=cuts music=royalty"
 param([string] $Build, [string] $Common, [string[]] $Jobs, [string[]] $Extra = @())
 $inst = "$env:APPDATA\PrismLauncher\instances\BuildRecording\minecraft"
 $log = "$inst\logs\latest.log"

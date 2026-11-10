@@ -33,5 +33,6 @@ tools/picture2schem/anthropic-key.txt
 tools/shorts/*.log
 tools/shorts/*.pause
 tools/shorts/run-queue.last-style
-tools/shorts/recreate-shorts.log
+tools/shorts/node_modules/
+tools/startbuild-icon-preview.png
 tools/shorts/run-queue.last-song

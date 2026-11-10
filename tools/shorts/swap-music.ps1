@@ -22,6 +22,7 @@ $raws = Get-ChildItem $shorts -Directory | Where-Object { $_.Name -notlike '_*' 
 foreach ($raw in $raws) {
     $b = $raw.Directory.Name
     $song = Get-NextHouseSong
+    if ($song -eq $From) { $song = Get-NextHouseSong }      # (the same song: ffmpeg would write over its own input)
     $songFile = Get-ChildItem $musicDir | Where-Object { $_.BaseName -eq $song } | Select-Object -First 1
     $newName = $raw.Name -replace ([regex]::Escape("-$From.mp4") + '$'), "-$song.mp4"
     $newRaw = Join-Path $raw.DirectoryName $newName
@@ -41,6 +42,8 @@ foreach ($raw in $raws) {
     $final = Join-Path $raw.DirectoryName "$b - final.mp4"
     try { & (Join-Path $PSScriptRoot 'finish-short.ps1') -In $newRaw -Out $final -Build $b -Display "$($row.Build)" -Title "$($row.Title)" | Out-Null } catch { "${b}: finish FAILED - $_"; continue }
     & $ff -v error -y -i $final -c:v libx264 -preset slow -crf 21 -maxrate 5500k -bufsize 11000k -c:a aac -b:a 160k -movflags +faststart (Join-Path $raw.DirectoryName "$b - final (phone size).mp4")
+    # a Short that was cut to ~20 s stays ~20 s (the new song's 36 s version goes to "_long version")
+    if (Test-Path -LiteralPath (Join-Path $raw.DirectoryName '_long version')) { try { & (Join-Path $PSScriptRoot 'shorten-short.ps1') -Build $b | Out-Null } catch { "${b}: shorten FAILED - $_" } }
     "$b -> $song"
 }
 & (Join-Path $PSScriptRoot 'package-all.ps1') | Select-Object -Last 1

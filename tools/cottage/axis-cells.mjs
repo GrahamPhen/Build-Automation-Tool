@@ -1,6 +1,6 @@
 // For a given schematic layer, list every non-default-state cell (e.g. axis=x) and show what is
 // ACTUALLY in the world at that spot, comparing FULL states (name + properties) — unlike
-// verify-build.mjs / why-stuck.mjs, whose world readers compare names only.
+// verify-build.mjs, whose world readers compare names only.
 //
 // Usage: node tools/cottage/axis-cells.mjs <schematic.litematic> <regionDir> <ox> <oy> <oz> <layer>
 import fs from 'node:fs';

@@ -18,7 +18,7 @@ holds obsolete Baritone-era (1.x) notes.
 ```
 .\gradlew.bat build          # -> build\libs\startbuild-<version>.jar
 ```
-Then double-click the desktop icon **"Minecraft - Build Recording"** (`tools/startbuild-launch.ps1`). It
+Then double-click the desktop icon **"Minecraft - Build Recording"** (`C:\Users\Graham\Codex\MineSurvive\tools\startbuild-launch.ps1`, identical to `tools/startbuild-launch.ps1` here). It
 installs/verifies the mod set and the newest StartBuild jar (only while Minecraft is closed), then starts
 the instance. Bump `version=` in `gradle.properties` on every change; the launcher installs the highest.
 

@@ -174,4 +174,5 @@ if ($LASTEXITCODE -ne 0) { throw "ffmpeg failed on $In" }
 
 $desc = Get-ShortDescription $Build $Display $Title
 Set-Content -Path ([IO.Path]::Combine((Split-Path $Out), "$Build - description.txt")) -Value $desc -Encoding utf8
+Remove-Item -LiteralPath $work -Recurse -Force -ErrorAction SilentlyContinue
 "finished: $Out ($(N $total) s)"

@@ -1,0 +1,8 @@
+{
+  "name": "startbuild-shorts-tools",
+  "private": true,
+  "description": "upload-doc.js writes the Shorts upload sheet (.docx)",
+  "dependencies": {
+    "docx": "9.5.1"
+  }
+}

@@ -1,6 +1,6 @@
 # Re-renders finished takes in the current Short format from their saved replays (render settings come from
 # run-queue.log): the old raw / final / phone copy go to the Recycle Bin first, then render, thumbnail and title,
-# finish, phone copy - alternating orbit and snap-cut cameras like run-queue. Ends with package-all.
+# finish, phone copy, ~20 s cut - snap cuts like run-queue. Ends with package-all.
 #   recreate-shorts.ps1 -Builds name1,name2,...
 param([Parameter(Mandatory)][string[]] $Builds, [switch] $Keep)
 $ErrorActionPreference = 'Continue'
@@ -36,6 +36,7 @@ foreach ($name in $Builds) {
         $cur = Get-ChildItem -LiteralPath $dir -Filter "$name-*.mp4" -ErrorAction SilentlyContinue | Where-Object { $_.Name -match '-[CDE]-(orbit|cuts|flyby)-(.+)\.mp4$' -and $_.Name -notmatch '-s\d+\.mp4$' } |
             Sort-Object LastWriteTime -Descending | Select-Object -First 1
         if ($cur -and $cur.Name -match '-[CDE]-(orbit|cuts|flyby)-(.+)\.mp4$') { $music = $Matches[2] }
+        if ($music -eq 'runaway_slowed') { $music = Get-NextHouseSong }
     }
     $cutName = @{ orbit = 'C-orbit'; cuts = 'D-cuts'; flyby = 'E-flyby' }[$style]
     Say "=== $name ($style, $music)"
@@ -48,7 +49,7 @@ foreach ($name in $Builds) {
     # titles of videos that are gone (the other camera's name) must not be picked up again
     $rows = @(Import-Csv $csvPath | Where-Object { -not ($_.Video -like "$name-*" -and -not (Test-Path -LiteralPath (Join-Path $dir $_.Video))) })
     $rows | Export-Csv -NoTypeInformation -Encoding UTF8 $csvPath
-    try { & (Join-Path $here 'make-thumbnails.ps1') -Only $name -Force 2>&1 | Select-Object -Last 1 | ForEach-Object { Say "    $_" } } catch { Say "    thumbnail error: $_" }
+    try { & (Join-Path $here 'make-thumbnails.ps1') -Only $name -TitlesOnly 2>&1 | Select-Object -Last 1 | ForEach-Object { Say "    $_" } } catch { Say "    thumbnail error: $_" }
     # (make-thumbnails gives the title; the cover itself is the approved v2 style)
     try { & (Join-Path $here 'thumb-v2-build.ps1') -Build $name 2>&1 | Select-Object -Last 1 | ForEach-Object { Say "    $_" } } catch { Say "    v2 thumbnail error: $_" }
     $row = Import-Csv $csvPath | Where-Object { $_.Video -eq "$name-$cutName-$music.mp4" } | Select-Object -First 1
@@ -56,6 +57,8 @@ foreach ($name in $Builds) {
     try { & (Join-Path $here 'finish-short.ps1') -In $raw -Out $final -Build $name -Display "$($row.Build)" -Title "$($row.Title)" 2>&1 | ForEach-Object { Say "    $_" } } catch { Say "    finish error: $_" }
     if (Test-Path -LiteralPath $final) {
         & $ff -v error -y -i $final -c:v libx264 -preset slow -crf 21 -maxrate 5500k -bufsize 11000k -c:a aac -b:a 160k -movflags +faststart (Join-Path $dir "$name - final (phone size).mp4")
+        # the posted cut is ~20 s, as run-queue makes it (the 36 s one goes to "_long version")
+        try { & (Join-Path $here 'shorten-short.ps1') -Build $name 2>&1 | Select-Object -Last 1 | ForEach-Object { Say "    $_" } } catch { Say "    shorten error: $_" }
         Say "  $name SHORT READY"
     } else { Say "  ${name}: no final video" }
 }

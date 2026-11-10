@@ -1,9 +1,10 @@
 ﻿# One thumbnail + one title per edited Short. The thumbnail is a frame of the finished build (just before the
 # end of the cut), with the build's name in big outlined letters and a "MINECRAFT BUILD" pill; saved as
 # "<video name>.jpeg" in the Desktop folder "Shorts Thumbnails and Titles", with titles.csv beside them.
-#   make-thumbnails.ps1 [-Only build1,build2] [-Force]
+#   make-thumbnails.ps1 [-Only build1,build2] [-Force] [-TitlesOnly]
+# (-TitlesOnly: the titles alone - run-queue and recreate-shorts draw the cover with thumb-v2-build afterwards)
 param([string] $Root = 'C:\Users\Graham\Desktop\Shorts', [string] $Out = 'C:\Users\Graham\Desktop\Shorts Thumbnails and Titles',
-      [string[]] $Only = @(), [switch] $Force, [hashtable] $At = @{})
+      [string[]] $Only = @(), [switch] $Force, [hashtable] $At = @{}, [switch] $TitlesOnly)
 # Hand-picked frames: video name -> seconds BEFORE THE END of the build's cinematic (B) cut, or "C:<seconds>"
 # to take it from the orbit cut instead (when trees block the B reveal).
 $manual = @{
@@ -195,7 +196,7 @@ foreach ($d in Get-ChildItem $Root -Directory | Where-Object { $_.Name -notlike 
         $title = Title $d.Name $cut $v.Name
         $rows.Add([pscustomobject]@{ Build = (Display $d.Name); Video = $v.Name; Title = $title })
         $jpg = Join-Path $Out "$base.jpeg"
-        if ((Test-Path $jpg) -and -not $Force) { continue }
+        if ($TitlesOnly -or ((Test-Path -LiteralPath $jpg) -and -not $Force)) { continue }
         # Only the FINISHED build: every thumbnail comes from the reveal at the end of the build's cinematic (B)
         # cut - its last ~7 s show the completed build (earlier, the orbit/timelapse frames can still be mid-build).
         # B thumbnails use the last moments, C/A ones a little earlier in the sweep, so they differ. Of those,

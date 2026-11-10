@@ -4,11 +4,14 @@
 param([int] $Minutes = 240)
 $l = "$env:APPDATA\PrismLauncher\instances\BuildRecording\minecraft\logs\latest.log"
 $start = (Get-Content $l).Count
+$born = (Get-Item $l).CreationTime
 $deadline = (Get-Date).AddMinutes($Minutes)
 while ((Get-Date) -lt $deadline) {
     Start-Sleep 60
     $all = Get-Content $l
-    if ($all.Count -lt $start) { $start = 0 }        # new log file (midnight or a restart)
+    # new log file (midnight or a restart) - by its creation time: a busy new log can already be longer than the old
+    $now = (Get-Item $l).CreationTime
+    if ($now -ne $born -or $all.Count -lt $start) { $start = 0; $born = $now }
     $new = $all | Select-Object -Skip $start | Select-String '\[StartBuild\] (Done:|.*Stopped|No such|Giving up|giving up)|error during'
     if ($new) {
         $new | Select-Object -Last 3 | ForEach-Object {

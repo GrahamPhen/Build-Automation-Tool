@@ -50,6 +50,9 @@ console.log(`world     : ${regionDir}`);
 console.log('');
 
 const worldAt = loadWorldReader(regionDir);
+// The mod drops empty layers under the build (2.17.11), so the logged origin is the first NON-empty layer.
+let y0 = 0;
+outer: for (; y0 < sy; y0++) for (let z = 0; z < sz; z++) for (let x = 0; x < sx; x++) if (schematicName(x, y0, z) !== 'minecraft:air') break outer;
 
 let required = 0, correct = 0, wrongBlock = 0, missing = 0, worldEmptyCells = 0;
 const missingTypes = new Map();
@@ -66,7 +69,7 @@ for (let y = 0; y < sy; y++) {
       if (want === 'minecraft:air') continue;
       required++;
       perLayerRequired[y]++;
-      const wx = origin.x + x, wy = origin.y + y, wz = origin.z + z;
+      const wx = origin.x + x, wy = origin.y + y - y0, wz = origin.z + z;
       const got = worldAt(wx, wy, wz);
       if (got === want) {
         correct++;

@@ -2,7 +2,7 @@
 
 Client-side Fabric mod (Minecraft 26.2, Java 25) that records a character hand-building a schematic for
 Shorts/TikTok/Reels timelapses. **Read `HANDOFF.md` first** — it has the architecture, commands, file map
-and what is/isn't verified. `docs/` holds the obsolete Baritone-era notes; don't follow them.
+and what is/isn't verified. `docs/` holds the obsolete Baritone-era notes; don't follow them (except `docs/sarox-import-*.csv`, current data).
 
 ## Owner's non-negotiables
 - The recording must look like a real player building: every build block placed by the character with a
@@ -32,13 +32,13 @@ and what is/isn't verified. `docs/` holds the obsolete Baritone-era notes; don't
   (`C:\Users\Graham\Codex\MineSurvive\staging\flashback-startbuild-20260922`). Keep the staging copy and
   `MineSurvive\tools\startbuild-*.ps1` identical to this repo after every change.
 - Game log (the source of truth): `%APPDATA%\PrismLauncher\instances\BuildRecording\minecraft\logs\latest.log`.
-  Builder progress lines: `[StartBuild] progress: N placed, M left, layer L, T min, last problem: ...`.
+  Builder progress lines: `[StartBuild] progress: <stage> - N placed, B broken, M left, layer L, T min, last problem: ...`.
   Never trust the mod's own counters over the log/world.
 - World save regions in 26.2: `saves\<world>\dimensions\minecraft\overworld\region` (not `saves\<world>\region`).
 - Verify a finished build against the schematic: `node tools/cottage/verify-build.mjs <schematic> <regionDir> <ox> <oy> <oz>`.
 - Judge the terraforming without screenshots: `node tools/cottage/site-relief.mjs <regionDir> <ox> <oz> <sizeX> <sizeZ> [margin] [out.png]`
   (hill-shaded relief + ground material, red = 3+ block steps; prints step counts and plant density).
-- Unit tests (pure logic: terraform heights, flight A*): `.\gradlew.bat test` (also run by `build`).
+- Unit tests (pure logic: terraform heights, ground layer, flight A*, site finder, queue, builder placement/cleanup): `.\gradlew.bat test` (also run by `build`).
 - Never click/focus other windows while a take is recording — Minecraft pauses on focus loss.
 
 ## Git

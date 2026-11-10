@@ -96,7 +96,8 @@ for (const [x, z] of [[40, 4], [46, 8], [44, 2], [49, 5]]) {
   for (let y = 4; y <= 9; y++) { const r = y < 7 ? 2 : 1; for (let dx = -r; dx <= r; dx++) for (let dz = -r; dz <= r; dz++) if (dx || dz || y > 7) set(x + dx, y, z + dz, 'spruce_leaves[persistent=true]'); }
 }
 
-const out = process.argv[2] || '/tmp/p2s/spawn_plaza.litematic';
+// (default: the BuildRecording instance's schematics folder - /tmp/p2s did not exist on Windows)
+const out = process.argv[2] || `${process.env.APPDATA || '.'}/PrismLauncher/instances/BuildRecording/minecraft/schematics/spawn_plaza.litematic`;
 let maxY = 0; for (const k of g.keys()) maxY = Math.max(maxY, +k.split(',')[1]);
 for (const [k, v] of g) if (v === 'minecraft:air') g.delete(k);
 const r = writeLitematic(out, { name: 'spawn_plaza', author: 'picture2schem', size: { x: W, y: maxY + 1, z: D }, grid: g });

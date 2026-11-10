@@ -53,6 +53,9 @@ foreach ($r in $olderRows) { $t = $r.thumb -replace '^\(missing\) ', ''; if (Tes
 "$($rows.Count) current Shorts, $($olderRows.Count) older edits"
 $rows = @($rows) + @($olderRows)
 [IO.File]::WriteAllText($json, ($rows | ConvertTo-Json -Depth 3))
-$env:NODE_PATH = "$env:TEMP\docxlib\node_modules"
+# (the docx library: tools\shorts\node_modules - "npm install" there; it used to sit in %TEMP%, which got cleaned
+# out, and the sheet silently stopped updating on 2026-10-31)
+if (-not (Test-Path (Join-Path $PSScriptRoot 'node_modules\docx'))) { Push-Location $PSScriptRoot; npm install --no-audit --no-fund | Out-Null; Pop-Location }
 node (Join-Path $PSScriptRoot 'upload-doc.js') $json (Join-Path $kit 'Shorts Upload Sheet.docx')
+if ($LASTEXITCODE -ne 0) { "UPLOAD SHEET FAILED (node exit $LASTEXITCODE)" }
 "$($rows.Count) Shorts packaged; missing thumbnails: $(@($rows | Where-Object { $_.thumb -like '(missing)*' -or -not $_.thumb }).Count)"
