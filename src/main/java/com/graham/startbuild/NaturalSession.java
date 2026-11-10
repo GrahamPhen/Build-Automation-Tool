@@ -515,6 +515,8 @@ final class NaturalSession {
         BlockPos centre = exploreTarget;
         exploreTarget = null;
         if (missing > total / 2) {
+            StartBuildMod.LOGGER.info("[StartBuild] findsite area {} not loaded: {} of {} chunks missing, player at {}, render distance {}",
+                    centre, missing, total, mc.player.blockPosition(), mc.options.getEffectiveRenderDistance());
             StartBuildMod.chat("§eThe area did not load in time.");
             autoRetry(mc);
             return;

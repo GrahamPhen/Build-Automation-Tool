@@ -46,6 +46,14 @@ while ($true) {
         $o = [IO.File]::ReadAllText($opt)
         if ($o -match 'pauseOnLostFocus:true') { [IO.File]::WriteAllText($opt, ($o -replace 'pauseOnLostFocus:true', 'pauseOnLostFocus:false')) }
     }
+    # an unfinished recording (game closed mid-take) makes Flashback open its Recovery screen at every launch,
+    # which pauses the game: no chunks load and every take fails "did not load in time" (2026-11-10).
+    # Keep it, but out of Flashback's way.
+    $unfinished = "$inst\flashback\temp\recording"
+    if (Test-Path $unfinished) {
+        Move-Item $unfinished "$inst\flashback\unfinished-$(Get-Date -Format yyyyMMdd-HHmmss)"
+        Say "moved an unfinished Flashback recording aside (it would open the Recovery screen)"
+    }
     $launchTime = Get-Date
     & powershell -NoProfile -ExecutionPolicy Bypass -File $launcher -Build $name -Wish "$wish" *> $null
     $log = "$inst\logs\latest.log"
