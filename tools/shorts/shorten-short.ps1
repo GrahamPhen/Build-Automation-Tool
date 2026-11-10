@@ -1,10 +1,10 @@
-# Cuts a build's Short down to ~20 s (owner, 2026-10-31: "anywhere between 12-25 seconds ... we can skip parts of
+# Cuts a build's Short down to ~24 s (owner, 2026-11-09: all Shorts 20-30 s; 2026-10-31: "we can skip parts of
 # the build and cut around") from its snap-cut (D) render, without the game: the empty site as the build starts,
 # then a slice from the middle of each later camera angle (every jump in progress is also a cut to a new angle, so
 # nothing jumps within a shot), then the end of the reveal on the front. The song runs on unbroken under the cuts.
 # The 36 s final and phone copy move to "<build>\_long version"; finish-short makes the new final from the cut.
-#   shorten-short.ps1 -Build <name> [-Target 20]
-param([Parameter(Mandatory)][string] $Build, [double] $Target = 20)
+#   shorten-short.ps1 -Build <name> [-Target 24]
+param([Parameter(Mandatory)][string] $Build, [double] $Target = 24)
 $ErrorActionPreference = 'Stop'
 $bin = Split-Path (Get-ChildItem "$env:LOCALAPPDATA\Microsoft\WinGet\Packages" -Recurse -Filter ffmpeg.exe | Select-Object -First 1).FullName
 $ff = Join-Path $bin 'ffmpeg.exe'; $fp = Join-Path $bin 'ffprobe.exe'
