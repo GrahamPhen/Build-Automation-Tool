@@ -9,7 +9,6 @@ import net.minecraft.world.level.block.Blocks;
 import net.minecraft.world.level.block.state.BlockState;
 import net.minecraft.world.level.chunk.EmptyLevelChunk;
 import net.minecraft.world.level.chunk.LevelChunk;
-import net.minecraft.world.level.levelgen.Heightmap;
 import net.minecraft.world.level.material.Fluids;
 
 import java.util.ArrayList;
@@ -24,7 +23,7 @@ import java.util.Locale;
  *   - every footprint column should have ground exactly under the base: no hanging over air, water or a
  *     bank edge (overhang), and no terrain poking up through the floor (buried);
  *   - no water under the footprint at all;
- *   - few trees/rocks inside the build volume (the builder does not clear them, so they would show);
+ *   - few trees/rocks inside the build volume (the terraforming fells them on camera, which takes time);
  *   - the wish: water 1-6 blocks from the footprint (a bank, not a cliff 20 blocks above it), or higher than
  *     the surroundings (hill), or as flat as possible.
  * Read-only: nothing in the world is changed.
@@ -310,7 +309,7 @@ final class PlacementFinder {
                 }
                 double dist = Math.hypot(x0 + cx - centre.getX(), z0 + cz - centre.getZ());
                 cost += dist * 0.004;              // distance only breaks ties
-                all.add(new Result(new BlockPos(x0 + cx, ground + 1, z0 + cz), cost, overhang, buried, 0, ring));
+                all.add(new Result(new BlockPos(x0 + cx, ground - m.groundLayer, z0 + cz), cost, overhang, buried, 0, ring));
             }
         }
         all.sort((a, b) -> Double.compare(a.cost(), b.cost()));
@@ -320,7 +319,7 @@ final class PlacementFinder {
         // 4. Only for the leaders: count trees/rocks inside the build volume (the costly check), re-rank,
         //    and keep sites that do not overlap each other.
         List<Result> top = new ArrayList<>();
-        // Spread the shortlist out first: the best candidate of each non-overlapping area, up to 20 areas.
+        // Spread the shortlist out first: the best candidate of each non-overlapping area, up to 40 areas.
         List<Result> spread = new ArrayList<>();
         for (Result r : all) {
             boolean near = spread.stream().anyMatch(o -> Math.abs(o.origin().getX() - r.origin().getX()) < m.sizeX

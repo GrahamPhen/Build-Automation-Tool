@@ -2,12 +2,10 @@ package com.graham.startbuild;
 
 import net.minecraft.core.BlockPos;
 import net.minecraft.core.Vec3i;
-import net.minecraft.world.level.block.state.BlockState;
 
 import java.lang.reflect.Method;
 import java.nio.file.Path;
 import java.util.List;
-import java.util.Map;
 
 /**
  * Reflection bridge into Litematica: reads schematics (for {@link SchematicModel}), shows the preview

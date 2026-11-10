@@ -97,8 +97,8 @@ final class NaturalSession {
     }
 
     /**
-     * The corner at the height the build must stand at: one above the MEDIAN natural ground under the
-     * columns it actually stands on - so a build started while flying (or standing on a tree or a rock)
+     * The corner at the height the build must stand at: its ground layer (SchematicModel.groundLayer) level
+     * with the MEDIAN natural ground under the columns it actually stands on - so a build started while flying (or standing on a tree or a rock)
      * sits on the land instead of floating or sinking. The terraforming then evens out the rest.
      */
     static BlockPos onGround(ClientLevel level, BlockPos corner, SchematicModel m) {
@@ -112,7 +112,7 @@ final class NaturalSession {
         }
         if (hs.isEmpty()) return corner;
         java.util.Collections.sort(hs);
-        return new BlockPos(corner.getX(), hs.get(hs.size() / 2) + 1, corner.getZ());
+        return new BlockPos(corner.getX(), hs.get(hs.size() / 2) - m.groundLayer, corner.getZ());
     }
 
     /**
@@ -782,7 +782,9 @@ final class NaturalSession {
                 // Nothing is recorded yet: drop this site and let the search offer the next one.
                 StartBuildMod.LOGGER.warn("[StartBuild] hands-free: skipping site {} - {}", origin.toShortString(), bad);
                 state = State.IDLE;
-                restoreOptions(mc);
+                // (not restoreOptions: the search goes on, and pause-on-focus-loss back on would stall it the
+                // moment another window is in front - the 2026-10-13 stall startAuto guards against)
+                applyGameSpeed(false);
                 autoMode = true;
                 if (siteIndex + 1 < siteChoices.size()) {
                     siteIndex++;

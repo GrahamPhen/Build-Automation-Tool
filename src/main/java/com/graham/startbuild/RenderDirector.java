@@ -22,7 +22,7 @@ import java.util.TreeMap;
  * own exporter at 1080x1920 - one video per line of the flag file, back to back.
  *
  * Flag file config/startbuild-render, checked at the title screen; one job per line, key=value:
- *   replay=<file in Flashback's replay folder>  style=tripod|cinematic|orbit  output=<name>.mp4
+ *   replay=<file in Flashback's replay folder>  style=cuts|orbit|cinematic|tripod|flyby  output=<name>.mp4
  *   centerX= centerZ= baseY=   the middle of what was built, and its ground level
  *   width= depth= height=      its real size (frames every shot)
  *   terraformEnd= buildEnd=    replay ticks where the stages ended (from the take's log)

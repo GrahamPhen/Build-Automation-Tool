@@ -4,7 +4,7 @@ import java.lang.reflect.Field;
 import java.lang.reflect.Method;
 
 /**
- * Minimal reflection helpers. StartBuild calls Baritone and Flashback through reflection so it has
+ * Minimal reflection helpers. StartBuild calls Litematica and Flashback through reflection so it has
  * no compile-time dependency on either mod, stays buildable against Fabric API alone, and can load
  * and explain itself when one of them is missing.
  */

@@ -69,7 +69,8 @@ final class Terraformer {
     }
 
     static Plan plan(ClientLevel level, BlockPos origin, SchematicModel m, int radius) {
-        int pad = origin.getY() - 1;                        // the ground the build stands on
+        int base = origin.getY() - 1;                       // just below the build's bottom layer
+        int pad = origin.getY() + m.groundLayer;            // the ground level around it (its floor / own grass)
         int r = MAX_RADIUS;                                 // sample the widest zone; targetHeights picks the blend
         int fx1 = origin.getX(), fz1 = origin.getZ(), fx2 = fx1 + m.sizeX - 1, fz2 = fz1 + m.sizeZ - 1;
         int zx = fx1 - r, zz = fz1 - r, w = m.sizeX + 2 * r, d = m.sizeZ + 2 * r;
@@ -140,8 +141,8 @@ final class Terraformer {
                     standing[i] = true;
                     anyStanding = true;
                 }
-                if (lowest >= 0) cap[i] = pad + lowest;     // ground top stays below the build's lowest block
-                else cap[i] = pad + m.sizeY;                // open sky above: anything up to the build's top
+                if (lowest >= 0) cap[i] = base + lowest;    // ground top stays below the build's lowest block
+                else cap[i] = base + m.sizeY;               // open sky above: anything up to the build's top
             }
         }
         if (!anyStanding) {                                 // nothing in the bottom layers: level the whole box
@@ -180,7 +181,7 @@ final class Terraformer {
         Map<BlockPos, BlockState> clear = new HashMap<>();
         Map<BlockPos, BlockState> fill = new HashMap<>();
         BlockState air = Blocks.AIR.defaultBlockState();
-        int buildTop = pad + m.sizeY + 1;
+        int buildTop = base + m.sizeY + 1;
         int planted = 0;
         for (int dz = 0; dz < d; dz++) {
             for (int dx = 0; dx < w; dx++) {
@@ -225,7 +226,7 @@ final class Terraformer {
         // 4. Whole trees, each its own part: a trunk standing where the ground changes (or anything woody in
         //    the build's way) goes with all its leaves - a half-felled tree or floating leaves would show.
         List<Map<BlockPos, BlockState>> trees = fellTrees(level, clear, ground, top, target, zx, zz, w, d,
-                fx1, fz1, fx2, fz2, pad + m.sizeY + 6);
+                fx1, fz1, fx2, fz2, base + m.sizeY + 6);
         int treeBlocks = 0;
         for (Map<BlockPos, BlockState> t : trees) {
             treeBlocks += t.size();
@@ -454,7 +455,7 @@ final class Terraformer {
         while (!bq.isEmpty()) {
             BlockPos c = bq.poll();
             int dc = dist.get(c);
-            if (dc >= e) continue;
+            if (dc >= e - 1) continue;                      // (leaves at distance 7 decay - they are not held)
             for (Direction dir : Direction.values()) {
                 BlockPos n = c.relative(dir);
                 if (dist.containsKey(n) || !level.getBlockState(n).is(BlockTags.LEAVES)) continue;

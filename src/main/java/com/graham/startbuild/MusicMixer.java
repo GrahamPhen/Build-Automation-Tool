@@ -75,7 +75,9 @@ final class MusicMixer {
                     n = 0;
                     window = w;
                 }
-                for (Object b : (Object[]) frameCls.getField("samples").get(f)) {
+                Object[] samples = (Object[]) frameCls.getField("samples").get(f);
+                if (samples == null) continue;
+                for (Object b : samples) {
                     if (!(b instanceof ShortBuffer s)) continue;
                     for (int i = s.position(); i < s.limit(); i++) {
                         sum += (double) s.get(i) * s.get(i);
@@ -201,32 +203,37 @@ final class MusicMixer {
         Class<?> grabberCls = Class.forName("org.bytedeco.javacv.FFmpegFrameGrabber");
         Class<?> frameCls = Class.forName("org.bytedeco.javacv.Frame");
         Object g = grabberCls.getConstructor(String.class).newInstance(file.toString());
-        call(g, "setSampleFormat", int.class, 1);
-        call(g, "start");
-        StringBuilder sb = new StringBuilder(file.getFileName() + ": audio streams=" + call(g, "hasAudio")
-                + " rate=" + call(g, "getSampleRate") + " ch=" + call(g, "getAudioChannels") + " | rms/5s:");
-        double sum = 0;
-        long n = 0, window = 0;
-        Object f;
-        while ((f = grabberCls.getMethod("grabSamples").invoke(g)) != null) {
-            long t = (long) call(g, "getTimestamp");
-            if (t / 5_000_000 > window) {
-                sb.append(' ').append(n == 0 ? 0 : (int) Math.sqrt(sum / n));
-                sum = 0;
-                n = 0;
-                window = t / 5_000_000;
-            }
-            for (Object b : (Object[]) frameCls.getField("samples").get(f)) {
-                if (!(b instanceof ShortBuffer s)) continue;
-                for (int i = s.position(); i < s.limit(); i++) {
-                    sum += (double) s.get(i) * s.get(i);
-                    n++;
+        try {
+            call(g, "setSampleFormat", int.class, 1);
+            call(g, "start");
+            StringBuilder sb = new StringBuilder(file.getFileName() + ": audio streams=" + call(g, "hasAudio")
+                    + " rate=" + call(g, "getSampleRate") + " ch=" + call(g, "getAudioChannels") + " | rms/5s:");
+            double sum = 0;
+            long n = 0, window = 0;
+            Object f;
+            while ((f = grabberCls.getMethod("grabSamples").invoke(g)) != null) {
+                long t = (long) call(g, "getTimestamp");
+                if (t / 5_000_000 > window) {
+                    sb.append(' ').append(n == 0 ? 0 : (int) Math.sqrt(sum / n));
+                    sum = 0;
+                    n = 0;
+                    window = t / 5_000_000;
+                }
+                Object[] samples = (Object[]) frameCls.getField("samples").get(f);
+                if (samples == null) continue;
+                for (Object b : samples) {
+                    if (!(b instanceof ShortBuffer s)) continue;
+                    for (int i = s.position(); i < s.limit(); i++) {
+                        sum += (double) s.get(i) * s.get(i);
+                        n++;
+                    }
                 }
             }
+            sb.append(' ').append(n == 0 ? 0 : (int) Math.sqrt(sum / n));
+            return sb.toString();
+        } finally {
+            quietly(g, "release");
         }
-        sb.append(' ').append(n == 0 ? 0 : (int) Math.sqrt(sum / n));
-        quietly(g, "release");
-        return sb.toString();
     }
 
     /** Scale a samples frame (S16) by `gain` (boost and fade-out), clipped to the 16-bit range. */

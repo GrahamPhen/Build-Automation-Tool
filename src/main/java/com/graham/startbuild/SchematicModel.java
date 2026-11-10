@@ -3,7 +3,9 @@ package com.graham.startbuild;
 import net.minecraft.core.BlockPos;
 import net.minecraft.core.Vec3i;
 import net.minecraft.world.level.block.Blocks;
+import net.minecraft.world.level.block.DoorBlock;
 import net.minecraft.world.level.block.state.BlockState;
+import net.minecraft.world.level.block.state.properties.DoubleBlockHalf;
 
 import java.lang.reflect.Method;
 import java.util.Map;
@@ -23,6 +25,11 @@ final class SchematicModel {
     final int sizeZ;
     final BlockState[] states;
     int solidCount;
+    /**
+     * The layer whose top is level with the ground around the build (see {@link #fitToGround}): the build
+     * goes in at origin y = ground - groundLayer. -1 = its bottom layer stands on the ground.
+     */
+    int groundLayer = -1;
 
     private SchematicModel(int sx, int sy, int sz) {
         this.sizeX = sx;
@@ -119,7 +126,9 @@ final class SchematicModel {
                     }
                 }
             }
-            return model.withoutEmptyBottom();
+            SchematicModel fitted = model.withoutEmptyBottom();
+            fitted.fitToGround();
+            return fitted;
         } catch (Throwable t) {
             StartBuildMod.LOGGER.warn("[StartBuild] schematic read failed: {}", Reflect.describe(t));
             return null;
@@ -147,6 +156,95 @@ final class SchematicModel {
         t.solidCount = solidCount;
         StartBuildMod.LOGGER.info("[StartBuild] schematic: {} empty layer(s) below the build dropped", empty);
         return t;
+    }
+
+    /**
+     * Sets the build into the land instead of on top of it (owner, 2026-11-09: builds were going up one or two
+     * blocks above the ground; they must start flush with it). Most downloaded houses stand on a display base:
+     * a full layer of concrete under everything, often with a stone plinth or a slab of the creator's own
+     * grass on top. So:
+     *  - the concrete of a bottom layer that is mostly concrete and covers most of the box is left out (it is
+     *    a showcase floor, not part of the build - statues made OF concrete never cover the box like that);
+     *  - {@link #groundLayer} is then picked by {@link #groundLayer(int, int[], int[], int)}.
+     * The origin keeps meaning the schematic's corner, so the verify tools still line up.
+     */
+    private void fitToGround() {
+        int area = sizeX * sizeZ, solid0 = 0, concrete0 = 0;
+        for (int i = 0; i < area; i++) {
+            BlockState s = states[i];
+            if (s == null) continue;
+            solid0++;
+            if (concrete(s)) concrete0++;
+        }
+        if (sizeY > 1 && solid0 * 10 >= area * 6 && concrete0 * 10 >= solid0 * 3) {
+            for (int i = 0; i < area; i++) if (states[i] != null && concrete(states[i])) states[i] = null;
+            solidCount -= concrete0;
+            StartBuildMod.LOGGER.info("[StartBuild] schematic: display base left out ({} concrete blocks in the bottom layer)", concrete0);
+        }
+        int layers = Math.min(sizeY, 12);
+        int[] solid = new int[layers], earth = new int[layers];
+        int door = -1;
+        for (int y = 0; y < sizeY; y++) {
+            for (int z = 0; z < sizeZ; z++) {
+                for (int x = 0; x < sizeX; x++) {
+                    BlockState s = states[index(x, y, z)];
+                    if (s == null) continue;
+                    if (y < layers) {
+                        solid[y]++;
+                        if (landscape(s)) earth[y]++;
+                    }
+                    if (door < 0 && s.getBlock() instanceof DoorBlock
+                            && s.getValue(DoorBlock.HALF) == DoubleBlockHalf.LOWER) door = y;
+                }
+            }
+            if (door >= 0 && y >= layers) break;
+        }
+        groundLayer = groundLayer(area, solid, earth, door);
+        if (groundLayer >= 0) StartBuildMod.LOGGER.info("[StartBuild] schematic: layer {} goes level with the ground (door at {})", groundLayer, door);
+    }
+
+    /**
+     * Which layer's top goes level with the ground - pure arithmetic, unit-tested. In order:
+     *  1. the build brings its own ground (layers from the bottom that are mostly grass / dirt / its pond,
+     *     covering a good part of the box): the top of that is the ground;
+     *  2. a door with a plinth or foundation under its floor (every layer below the floor covers half the
+     *     box): the floor goes level with the ground and the plinth into it (at most 5 layers down);
+     *  3. a door on the lowest layer: that floor is level with the ground (not a step up onto it);
+     *  4. else the lowest layer stands on the ground (statues, a fallen log house, ships): -1 below it.
+     *
+     * @param solid blocks per layer (after the display base is left out), from the bottom
+     * @param earth of those, grass / dirt / sand / water - the creator's landscaping
+     * @param door  layer of the lowest door's lower half, or -1
+     */
+    static int groundLayer(int area, int[] solid, int[] earth, int door) {
+        int first = 0;
+        while (first < solid.length && solid[first] == 0) first++;
+        if (first >= solid.length) return -1;
+        int terrainTop = -1;
+        for (int y = first; y < solid.length; y++) {
+            if (solid[y] * 10 >= area * 3 && earth[y] * 10 >= solid[y] * 4) terrainTop = y;
+            else break;
+        }
+        if (terrainTop >= 0) return terrainTop;
+        int floor = door - 1;
+        if (floor >= first && floor - first <= 4) {
+            boolean plinth = true;
+            for (int y = first; y < floor; y++) plinth &= solid[y] * 2 >= area;
+            if (plinth) return floor;
+        }
+        return first - 1;
+    }
+
+    private static boolean concrete(BlockState s) {
+        return s.getBlock().toString().endsWith("_concrete}");
+    }
+
+    private static boolean landscape(BlockState s) {
+        return s.is(Blocks.GRASS_BLOCK) || s.is(Blocks.DIRT) || s.is(Blocks.COARSE_DIRT) || s.is(Blocks.ROOTED_DIRT)
+                || s.is(Blocks.PODZOL) || s.is(Blocks.MYCELIUM) || s.is(Blocks.MOSS_BLOCK) || s.is(Blocks.MUD)
+                || s.is(Blocks.SAND) || s.is(Blocks.RED_SAND) || s.is(Blocks.GRAVEL) || s.is(Blocks.SNOW_BLOCK)
+                || s.is(Blocks.DIRT_PATH) || s.is(Blocks.FARMLAND) || s.is(Blocks.CLAY) || s.is(Blocks.WATER)
+                || s.is(Blocks.SEAGRASS) || s.is(Blocks.TALL_SEAGRASS);
     }
 
     private static int regionMin(int origin, int size) {
