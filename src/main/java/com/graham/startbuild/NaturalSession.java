@@ -133,6 +133,9 @@ final class NaturalSession {
             savedPauseOnLostFocus = mc.options.pauseOnLostFocus;
             mc.options.pauseOnLostFocus = false;
         }
+        // The option alone does not unpause: a window that opened without focus has already paused itself
+        // (12 builds failed that way on 2026-11-09), so close the pause menu too.
+        if (mc.gui != null && mc.gui.screen() instanceof net.minecraft.client.gui.screens.PauseScreen) mc.gui.setScreen(null);
         return findSite(name, wish, true);
     }
 

@@ -39,6 +39,13 @@ while ($true) {
 
     # 1. build it
     CloseGame
+    # the window can open without focus (PC idle / screen locked): with pause-on-focus-loss on, the game paused
+    # before the take began, loaded no chunks, and 12 builds failed "did not load in time" (2026-11-09)
+    $opt = "$inst\options.txt"
+    if (Test-Path $opt) {
+        $o = [IO.File]::ReadAllText($opt)
+        if ($o -match 'pauseOnLostFocus:true') { [IO.File]::WriteAllText($opt, ($o -replace 'pauseOnLostFocus:true', 'pauseOnLostFocus:false')) }
+    }
     $launchTime = Get-Date
     & powershell -NoProfile -ExecutionPolicy Bypass -File $launcher -Build $name -Wish "$wish" *> $null
     $log = "$inst\logs\latest.log"
