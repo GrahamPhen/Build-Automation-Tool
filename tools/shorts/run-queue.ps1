@@ -28,6 +28,7 @@ $inv = [Globalization.CultureInfo]::InvariantCulture
 
 if ($DelayMinutes -gt 0) { Say "waiting $DelayMinutes min before starting"; Start-Sleep -Seconds ($DelayMinutes * 60) }
 Say 'run-queue started'
+$failed = @()                                                                    # builds that failed in a row
 while ($true) {
     if (Test-Path (Join-Path $here 'run-queue.pause')) { Say 'pause file found - stopping'; break }
     $lines = @(Get-Content $list -ErrorAction SilentlyContinue | Where-Object { $_.Trim() -and -not $_.Trim().StartsWith('#') })
@@ -83,6 +84,15 @@ while ($true) {
     }
     if (-not $result) { $result = 'timeout' }
     Say "$name build: $result"
+    # three builds failing in a row is the game or the mod, not the builds (2026-11-09: ten were used up that way
+    # overnight): put them back at the top of the list and stop
+    if ($result -eq 'saved') { $failed = @() } else { $failed = @($failed) + $line }
+    if ($failed.Count -ge 3) {
+        Set-Content $list (@($failed) + @(Get-Content $list)) -Encoding ascii
+        Say "$($failed.Count) builds failed in a row - put back on the list, stopping"
+        CloseGame
+        break
+    }
     if ($result -ne 'saved' -or -not $ev.R -or -not $ev.L) { continue }
 
     # 2. its Short, straight away
