@@ -50,6 +50,14 @@ class NaturalBuilderPlacementTest {
         }
     }
 
+    @Test void aCropGrownPastTheWantedStageIsDone() {
+        BlockState wheat = Blocks.WHEAT.defaultBlockState();
+        BlockState want = wheat.setValue(BlockStateProperties.AGE_7, 3);
+        assertTrue(NaturalBuilder.matches(wheat.setValue(BlockStateProperties.AGE_7, 7), want));
+        assertTrue(NaturalBuilder.matches(want, want));
+        assertFalse(NaturalBuilder.matches(wheat.setValue(BlockStateProperties.AGE_7, 2), want));
+    }
+
     @Test void poweredLeverAndTrapdoorAreStillCheckedExactly() {
         var lever = Blocks.LEVER.defaultBlockState().setValue(BlockStateProperties.POWERED, true);
         var initial = NaturalBuilder.placeState(lever);

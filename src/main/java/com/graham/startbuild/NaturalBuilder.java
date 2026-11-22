@@ -1304,7 +1304,8 @@ final class NaturalBuilder {
             progress();
             return;
         }
-        if (a.kind == Kind.USE && have.getBlock() == a.want.getBlock() && have.getBlock() instanceof CropBlock) {
+        if (a.kind == Kind.USE && have.getBlock() == a.want.getBlock() && have.getBlock() instanceof CropBlock
+                && attempts.merge(i, 1, Integer::sum) < 30) {
             progress();         // bone meal grew it part of the way: another click follows (not a wrong block)
             return;
         }
@@ -1773,6 +1774,10 @@ final class NaturalBuilder {
             // Worked out by the game from the surroundings when placed: leaf distance to a log, grass
             // "snowy" from the block above. A schematic's value cannot be clicked into place.
             if (n.equals("waterlogged") || n.equals("moisture") || n.equals("distance") || n.equals("snowy")) continue;
+            // Bone meal grows a crop several stages at once and it never shrinks back: grown at least as far as
+            // wanted is done (English_House's part-grown wheat was bone-mealed for ever).
+            if (b instanceof CropBlock && n.equals("age")
+                    && (Integer) have.getValue(p) >= (Integer) want.getValue(p)) continue;
             return false;
         }
         return true;
