@@ -131,10 +131,15 @@ final class Terraformer {
         boolean[] standing = new boolean[w * d];
         int[] cap = new int[w * d];
         java.util.Arrays.fill(cap, Integer.MAX_VALUE);
+        // Columns of the box where the build puts nothing at or above the ground: bare land, so it keeps (or gets
+        // back) its snow and plants like the land around - not a bald rectangle (FrostFallManor's green one).
+        boolean[] bare = new boolean[w * d];
         boolean anyStanding = false;
         for (int sz = 0; sz < m.sizeZ; sz++) {
             for (int sx = 0; sx < m.sizeX; sx++) {
                 int i = (sz + r) * w + sx + r;
+                bare[i] = true;
+                for (int y = Math.max(0, m.groundLayer); y < m.sizeY && bare[i]; y++) bare[i] = m.at(sx, y, sz).isAir();
                 int lowest = -1;
                 for (int y = 0; y < m.sizeY && lowest < 0; y++) if (!m.at(sx, y, sz).isAir()) lowest = y;
                 if (lowest == 0 || lowest == 1) {
@@ -193,10 +198,12 @@ final class Terraformer {
                 // Inside the footprint everything up to the build's top goes. Around it only the ground and
                 // what grows on it: canopies of trees that stay are left alone (trees in the way are felled
                 // whole below).
+                boolean dress = !foot || bare[i];           // nothing of the build here: snow / plants belong on it
                 int hi = foot ? Math.max(top[i], buildTop) + 1 : Math.max(g, t) + 3;
                 for (int y = t + 1; y <= hi; y++) {
                     BlockPos p = new BlockPos(x, y, z);
                     BlockState s = level.getBlockState(p);
+                    if (foot && bare[i] && t == g && y <= t + 2 && s.canBeReplaced()) continue;   // its own snow / plants stay
                     if (!foot && (s.is(BlockTags.LOGS) || s.is(BlockTags.LEAVES) || isWood(s))) continue;
                     if (clearable(level, p, s)) clear.put(p, air);
                 }
@@ -209,9 +216,9 @@ final class Terraformer {
                     for (int y = g + 1; y <= t; y++) fill.put(new BlockPos(x, y, z), y == t ? mySurface : mySub);
                 }
                 boolean snowHere = colTop[i] != null ? colSnow[i] : snowy;
-                if (snowHere && !foot && t != g) {
+                if (snowHere && dress && t != g) {
                     fill.put(new BlockPos(x, t + 1, z), Blocks.SNOW.defaultBlockState());
-                } else if (!foot && t != g && !plants.isEmpty() && hash(x * 3 + 7, z * 5 + 11) < plantDensity) {
+                } else if (dress && t != g && !plants.isEmpty() && hash(x * 3 + 7, z * 5 + 11) < plantDensity) {
                     // Replant by hand, as thickly and with the same mix as the untouched land around.
                     BlockState plant = plants.get((int) (hash(x * 13 + 1, z * 17 + 3) * plants.size()));
                     boolean dry = plant.is(Blocks.DEAD_BUSH) || plant.is(Blocks.SHORT_DRY_GRASS) || plant.is(Blocks.TALL_DRY_GRASS);

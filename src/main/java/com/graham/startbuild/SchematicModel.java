@@ -4,6 +4,9 @@ import net.minecraft.core.BlockPos;
 import net.minecraft.core.Vec3i;
 import net.minecraft.world.level.block.Blocks;
 import net.minecraft.world.level.block.DoorBlock;
+import net.minecraft.world.level.block.DoublePlantBlock;
+import net.minecraft.world.level.block.LilyPadBlock;
+import net.minecraft.world.level.block.VegetationBlock;
 import net.minecraft.world.level.block.state.BlockState;
 import net.minecraft.world.level.block.state.properties.DoubleBlockHalf;
 
@@ -201,6 +204,38 @@ final class SchematicModel {
         }
         groundLayer = groundLayer(area, solid, earth, door);
         if (groundLayer >= 0) StartBuildMod.LOGGER.info("[StartBuild] schematic: layer {} goes level with the ground (door at {})", groundLayer, door);
+        dropSunkenPlants();
+    }
+
+    /**
+     * Where the creator's own land slopes down below the ground layer, the site is levelled over it - so a flower
+     * or grass tuft down there would be planted in a one-block pit (OvergrownTavern: dozens of holes in the lawn).
+     */
+    private void dropSunkenPlants() {
+        int dropped = 0;
+        for (int y = 0; y <= groundLayer && y < sizeY; y++) {
+            for (int z = 0; z < sizeZ; z++) {
+                for (int x = 0; x < sizeX; x++) {
+                    BlockState s = states[index(x, y, z)];
+                    if (s == null || !landPlant(s)) continue;
+                    states[index(x, y, z)] = null;
+                    dropped++;
+                    if (s.getBlock() instanceof DoublePlantBlock && y + 1 < sizeY) {
+                        BlockState above = states[index(x, y + 1, z)];
+                        if (above != null && above.is(s.getBlock())) {
+                            states[index(x, y + 1, z)] = null;
+                            dropped++;
+                        }
+                    }
+                }
+            }
+        }
+        solidCount -= dropped;
+        if (dropped > 0) StartBuildMod.LOGGER.info("[StartBuild] schematic: {} plant(s) below the ground level left out", dropped);
+    }
+
+    private static boolean landPlant(BlockState s) {
+        return s.getBlock() instanceof VegetationBlock && !(s.getBlock() instanceof LilyPadBlock) && s.getFluidState().isEmpty();
     }
 
     /**
